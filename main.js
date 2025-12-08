@@ -115,8 +115,8 @@ class Linear {
 		this.inputLength = inputLength;
 		this.outputLength = outputLength;
 
-		this.weights = createParams(outputLength * inputLength, -0.5);
-		this.biases = createParams(outputLength, -0.5);
+		this.weights = createParams(outputLength * inputLength);
+		this.biases = createParams(outputLength);
 	}
 
 	forward(x) {
@@ -182,9 +182,9 @@ function createParams(n) {
 	return Float32Array.from({ length: n }, () => Math.random() - 0.5);
 }
 
-function updateParams(params, grad, lr = 0.5) {
+function updateParams(params, grad) {
 	for (let i = 0; i < params.length; i++) {
-		params[i] -= grad[i] * lr;
+		params[i] -= grad[i] * learningRate;
 	}
 }
 
@@ -360,29 +360,33 @@ function convolveXD() {
 	console.log('>>> TESTING CONVOLVE >>>');
 
 	const x = [
-		1, 2, 3, 
-		4, 5, 6, 
-		7, 8, 9
+		1, 2, 3, 4, 
+		5, 6, 7, 8, 
+		9, 10, 11, 12, 
+		13, 14, 15, 16
 	];
 
 	const kernel = [
-		1, -4, 
-		3, 5
+		1, -4, 2,  
+		3, 5, 0, 
+		3, 2, 2
 	];
 
 	const target = [
-		1, -2, -5, -12, 
-		7,  0,  5, -9, 
-		19, 15, 20, -6, 
-		21, 59, 67, 45
+		1, -2, -3, -4, -10, 8, 
+		8, -3, 12, 19, 2, 16, 
+		27, 25, 55, 69, 28, 32, 
+		55, 65, 111, 125, 56, 48, 
+		66, 155, 186, 201, 126, 24, 
+		39, 68, 99, 106, 62, 32
 	];
 
 	console.log(`INPUT: [${x}]`);
 	console.log(`KERNEL: [${kernel}]`);
 	console.log(`TARGET: [${target}]`);
 
-	const inputSize = 3;
-	const kernelSize = 2;
+	const inputSize = 4;
+	const kernelSize = 3;
 	const outputSize = inputSize + kernelSize - 1;
 	const borderSize = kernelSize - 1;
 
@@ -425,14 +429,12 @@ function convolveXD() {
 
 // dataset
 
-const maxParseLines = 2500;
-
 let data, datasets;
 
 function parse(text) {
 	data = [];
 
-	const lines = text.split('\n').slice(0, maxParseLines);
+	const lines = text.split('\n');
 	lines.shift();
 
 	for (let line of lines) {
@@ -499,13 +501,20 @@ function prepareData(data) {
 	return [x, y];
 }
 
+const epochs = 15;
+const batchSize = 16;
+
+const dataSplit = 0.12;
+const trainSplit = 0.8;
+const learningRate = 0.5;
+
 const networks = {
 	cnn: () => [
 		new Conv(28, 1, 3, 3), 
-		new ReLU(), 
+		new Sigmoid(), 
 		new Linear(3 * 26 * 26, 10)
 	], 
-	fcn: () => [
+	nn: () => [
 		new Linear(28 * 28, 4 * 4), 
 		new ReLU(), 
 		new Linear(4 * 4, 10)
@@ -518,15 +527,30 @@ const inputLength = layers[0].inputLength;
 const outputLength = layers[layers.length - 1].outputLength;
 
 function train() {
+	const partialData = data.slice(0, Math.floor(dataSplit * data.length));
+
+	const n = Math.floor(trainSplit * partialData.length);
+	const trainData = partialData.slice(0, n);
+	const valData = partialData.slice(n);
+
 	const [trainX, trainY] = datasets.train;
 	const [valX, valY] = datasets.val;
 
-	for (let i = 0; i < 500; i++) {
+	for (let e = 0; e < epochs; e++) {
 		const startTime = performance.now();
 
-		const trainPreds = forward(trainX);
-		backward(trainY, trainPreds);
+		for (let i = 0; i < trainData.length; i += batchSize) {
+			const batchX = trainX.slice(i * inputLength, (i + batchSize) * inputLength);
+			const batchY = trainY.slice(i * outputLength, (i + batchSize) * outputLength);
 
+			const preds = forward(batchX);
+			backward(batchY, preds);
+
+			/*const f = Math.min(1, (i + batchSize) / trainData.length);
+			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%`);*/
+		}
+
+		const trainPreds = forward(trainX);
 		const trainLoss = crossEntropy(trainY, trainPreds, outputLength);
 		const trainAccuracy = getAccuracy(trainY, trainPreds, outputLength);
 
@@ -536,7 +560,7 @@ function train() {
 
 		const timeTaken = performance.now() - startTime;
 
-		console.log(`epoch ${i + 1}, train loss: ${trainLoss.toFixed(3)}, train acc: ${(trainAccuracy * 100).toFixed(2)}%, val loss: ${valLoss.toFixed(3)}, val acc: ${(valAccuracy * 100).toFixed(2)}%, time taken: ${(timeTaken / 1000).toFixed(2)}s`);
+		console.log(`epoch ${e + 1}, train loss: ${trainLoss.toFixed(3)}, train acc: ${(trainAccuracy * 100).toFixed(2)}%, val loss: ${valLoss.toFixed(3)}, val acc: ${(valAccuracy * 100).toFixed(2)}%, time taken: ${(timeTaken / 1000).toFixed(2)}s`);
 	}
 }
 
