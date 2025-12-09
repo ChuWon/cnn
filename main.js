@@ -178,6 +178,79 @@ class Linear {
 	}
 }
 
+class MaxPool {
+	constructor(inputSize, kernelSize) {
+		this.inputSize = inputSize;
+		this.inputLength = inputSize * inputSize;
+		
+		this.kernelSize = kernelSize;
+		this.kernelLength = kernelSize * kernelSize;
+
+		this.outputSize = Math.floor(inputSize / 2);
+		this.outputLength = this.outputSize * this.outputSize;
+	}
+
+	forward(x) {
+		const numSamples = x.length / this.inputLength;
+
+		const out = new Float32Array(numSamples * this.outputLength);
+		this.maxIndex = new Uint32Array(out.length);
+
+		for (let n = 0; n < numSamples; n++) {
+			for (let oy = 0; oy < this.outputSize; oy++) {
+				for (let ox = 0; ox < this.outputSize; ox++) {
+					const ni = n * this.outputLength + (oy * this.outputSize + ox);
+
+					let max = -Infinity;
+					let maxIndex = -1;
+
+					for (let ky = 0; ky < this.kernelSize; ky++) {
+						for (let kx = 0; kx < this.kernelSize; kx++) {
+							const inputX = ox * this.kernelSize + kx;
+							const inputY = oy * this.kernelSize + ky;
+
+							const xi = n * this.inputLength + inputY * this.inputSize + inputX;
+							const v = x[xi];
+							if (v > max) {
+								max = v;
+								maxIndex = ky * this.kernelSize + kx;
+							}
+						}
+					}
+
+					out[ni] = max;
+					this.maxIndex[ni] = maxIndex;
+				}
+			}
+		}
+
+		return out;
+	}
+
+	backward(grad) {
+		const numSamples = grad.length / this.outputLength;
+
+		const inputGrad = new Float32Array(numSamples * this.inputLength);
+
+		for (let n = 0; n < numSamples; n++) {
+			for (let oy = 0; oy < this.outputSize; oy++) {
+				for (let ox = 0; ox < this.outputSize; ox++) {
+					const gi = n * this.outputLength + (oy * this.outputSize + ox);
+
+					const maxIndex = this.maxIndex[gi];
+					const kx = maxIndex % this.kernelSize;
+					const ky = (maxIndex - kx) / this.kernelSize;
+					const ni = n * this.inputLength + (oy * this.kernelSize + ky) * this.inputSize + (ox * this.kernelSize + kx);
+
+					inputGrad[ni] = grad[gi];
+				}
+			}
+		}
+
+		return inputGrad;
+	}
+}
+
 function createParams(n) {
 	return Float32Array.from({ length: n }, () => Math.random() - 0.5);
 }
@@ -457,7 +530,7 @@ function parse(text) {
 
 	console.log(`dataset loaded! (${data.length} samples)`);
 
-	datasets = createDatasets(1, 0.8);
+	datasets = createDatasets(dataSplit, 0.8);
 	train();
 }
 
@@ -501,18 +574,49 @@ function prepareData(data) {
 	return [x, y];
 }
 
-const epochs = 15;
-const batchSize = 16;
+function inspect(layers) {
+	let totalParams = 0;
+
+	let text = `>>> ${layers.length} layers >>>\n`;
+
+	for (let i = 0; i < layers.length; i++) {
+		const layer = layers[i];
+		text += `${layer.constructor.name}\n`;
+
+		for (const key in layer) {
+			const params = layer[key];
+			if (ArrayBuffer.isView(params)) {
+				totalParams += params.length;
+				text += `  ${key}: ${params.length}\n`;
+			}
+		}
+	}
+
+	text += `total params: ${totalParams}\n`;
+
+	console.log(text);
+}
+
+const epochs = 100;
+const batchSize = 24;
 
 const dataSplit = 0.12;
 const trainSplit = 0.8;
-const learningRate = 0.5;
+const learningRate = 0.02;
 
 const networks = {
 	cnn: () => [
-		new Conv(28, 1, 3, 3), 
-		new Sigmoid(), 
-		new Linear(3 * 26 * 26, 10)
+		new Conv(28, 1, 3, 32), 
+		new ReLU(), 
+		new MaxPool(26, 2), 
+		new Conv(13, 32, 3, 2), 
+		new ReLU(),
+		new MaxPool(11, 2), 
+		new Conv(5, 64, 3, 1), 
+		new ReLU(),
+		new Linear(3 * 3 * 64, 64), 
+		new ReLU(), 
+		new Linear(64, 10)
 	], 
 	nn: () => [
 		new Linear(28 * 28, 4 * 4), 
@@ -526,28 +630,26 @@ const layers = networks.cnn();
 const inputLength = layers[0].inputLength;
 const outputLength = layers[layers.length - 1].outputLength;
 
+inspect(layers);
+
 function train() {
-	const partialData = data.slice(0, Math.floor(dataSplit * data.length));
-
-	const n = Math.floor(trainSplit * partialData.length);
-	const trainData = partialData.slice(0, n);
-	const valData = partialData.slice(n);
-
 	const [trainX, trainY] = datasets.train;
 	const [valX, valY] = datasets.val;
+
+	const trainCount = trainX.length / inputLength;
 
 	for (let e = 0; e < epochs; e++) {
 		const startTime = performance.now();
 
-		for (let i = 0; i < trainData.length; i += batchSize) {
+		for (let i = 0; i < trainCount; i += batchSize) {
 			const batchX = trainX.slice(i * inputLength, (i + batchSize) * inputLength);
 			const batchY = trainY.slice(i * outputLength, (i + batchSize) * outputLength);
 
 			const preds = forward(batchX);
 			backward(batchY, preds);
 
-			/*const f = Math.min(1, (i + batchSize) / trainData.length);
-			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%`);*/
+			const f = Math.min(1, (i + batchSize) / trainCount);
+			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%, acc: ${(getAccuracy(batchY, preds, outputLength) * 100).toFixed(2)}%`);
 		}
 
 		const trainPreds = forward(trainX);
