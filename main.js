@@ -33,8 +33,8 @@ class Conv {
 		this.inputLength = inputDepth * inputSize * inputSize;
 		this.outputLength = this.depth * this.inputDepth * this.outputSize * this.outputSize;
 
-		this.kernels = createParams(this.depth * this.inputDepth * this.kernelSize * this.kernelSize);
-		this.biases = createParams(this.outputLength);
+		this.kernels = createParams(this.depth * this.inputDepth * this.kernelSize * this.kernelSize, 0.01);
+		this.biases = createParams(this.outputLength, 0.01);
 	}
 
 	forward(x) {
@@ -251,8 +251,8 @@ class MaxPool {
 	}
 }
 
-function createParams(n) {
-	return Float32Array.from({ length: n }, () => Math.random() - 0.5);
+function createParams(n, f = 1) {
+	return Float32Array.from({ length: n }, () => (Math.random() - 0.5) * f);
 }
 
 function updateParams(params, grad) {
@@ -597,40 +597,41 @@ function inspect(layers) {
 	console.log(text);
 }
 
-const epochs = 100;
-const batchSize = 24;
-
-const dataSplit = 0.12;
+const dataSplit = 1;
 const trainSplit = 0.8;
-const learningRate = 0.02;
+const epochs = 10;
 
 const networks = {
-	cnn: () => [
-		new Conv(28, 1, 3, 32), 
-		new ReLU(), 
-		new MaxPool(26, 2), 
-		new Conv(13, 32, 3, 2), 
-		new ReLU(),
-		new MaxPool(11, 2), 
-		new Conv(5, 64, 3, 1), 
-		new ReLU(),
-		new Linear(3 * 3 * 64, 64), 
-		new ReLU(), 
-		new Linear(64, 10)
-	], 
-	nn: () => [
-		new Linear(28 * 28, 4 * 4), 
-		new ReLU(), 
-		new Linear(4 * 4, 10)
-	]
+	cnn: {
+		batchSize: 1, 
+		learningRate: 0.01, 
+		layers: () => [
+			new Conv(28, 1, 7, 16), 
+			new ReLU(), 
+			new MaxPool(22, 2), 
+			new Linear(16 * 11 * 11, 10)
+		]
+	},
+	nn: {
+		batchSize: 16, 
+		learningRate: 0.5, 
+		layers: () => [
+			new Linear(28 * 28, 4 * 4), 
+			new ReLU(), 
+			new Linear(4 * 4, 10)
+		]
+	} 
 };
 
-const layers = networks.cnn();
+const network = networks.cnn;
+const learningRate = network.learningRate;
+const batchSize = network.batchSize;
+
+const layers = network.layers();
+inspect(layers);
 
 const inputLength = layers[0].inputLength;
 const outputLength = layers[layers.length - 1].outputLength;
-
-inspect(layers);
 
 function train() {
 	const [trainX, trainY] = datasets.train;
