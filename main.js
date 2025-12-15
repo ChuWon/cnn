@@ -600,6 +600,7 @@ function inspect(layers) {
 const dataSplit = 1;
 const trainSplit = 0.8;
 const epochs = 10;
+const checkpointInterval = 1 / 100;
 
 const networks = {
 	cnn: {
@@ -620,7 +621,7 @@ const networks = {
 			new ReLU(), 
 			new Linear(4 * 4, 10)
 		]
-	} 
+	}
 };
 
 const network = networks.cnn;
@@ -639,8 +640,11 @@ function train() {
 
 	const trainCount = trainX.length / inputLength;
 
+	let lastCheckpointT = 0;
+
 	for (let e = 0; e < epochs; e++) {
 		const startTime = performance.now();
+		lastCheckpointT = e;
 
 		for (let i = 0; i < trainCount; i += batchSize) {
 			const batchStartTime = performance.now();
@@ -653,6 +657,19 @@ function train() {
 
 			const f = Math.min(1, (i + batchSize) / trainCount);
 			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%, acc: ${(getAccuracy(batchY, preds, outputLength) * 100).toFixed(2)}%, time: ${((performance.now() - batchStartTime) / 1000).toFixed(3)}s`);
+
+			if (e + f - lastCheckpointT > checkpointInterval) {
+				lastCheckpointT = e + f;
+				saveCheckpoint({
+					name: 'cnn666', 
+					epoch: e, 
+					epochPercent: f * 100, 
+					batchSize, 
+					learningRate, 
+					timeTaken: (performance.now() - startTime) / 1000, 
+					layers
+				});
+			}
 		}
 
 		const trainPreds = forward(trainX);
@@ -685,14 +702,95 @@ function backward(targets, predictions) {
 	}
 }
 
+function encode(object) {
+	const ignoreMap = {
+		x: 1, 
+		maxIndex: 1
+	};
+
+	return JSON.stringify(object, (key, value) => {
+		if (key in ignoreMap) return;
+
+		if (value?.constructor !== Object) {
+			if (ArrayBuffer.isView(value)) {
+				return {
+					cls: value.constructor.name, 
+					data: bufferToBase64(value.buffer)
+				};
+			} else {
+				value.cls = value.constructor.name;
+			}
+		}
+
+		return value;
+	}, '\t');
+}
+
+function decode(json) {
+	const classes = {
+		Linear,
+		Conv,  
+		ReLU, 
+		Sigmoid, 
+		MaxPool
+	};
+
+	return JSON.parse(json, (key, value) => {
+		if (value?.cls) {
+			const cls = globalThis[value.cls] || classes[value.cls];
+			if (!cls) throw new Error('XD XD missing class: ' + value.cls);
+
+			if (cls.prototype.BYTES_PER_ELEMENT) {
+				value = new cls(base64ToBuffer(value.data));
+			} else {
+				value = Object.assign(new cls(), value);
+			}
+		}
+
+		return value;
+	});
+}
+
+function bufferToBase64(buffer) {
+	const bytes = new Uint8Array(buffer);
+	let text = '';
+	for (let i = 0; i < bytes.length; i++) {
+		text += String.fromCharCode(bytes[i]);
+	}
+
+	return btoa(text);
+}
+
+function base64ToBuffer(base64) {
+	const text = atob(base64);
+	const bytes = new Uint8Array(text.length);
+
+	for (let i = 0; i < text.length; i++) {
+		bytes[i] = text.charCodeAt(i);
+	}
+
+	return bytes.buffer;
+}
+
+function saveCheckpoint(json) {
+	console.log(json);
+}
+
 convolveXD();
 
 const file = 'mnist_train.csv';
 
 if (typeof window === 'undefined') {
 	const fs = require('fs');
-	const text = fs.readFileSync(file, { encoding: 'utf8' });
-	parse(text);
+	
+	saveCheckpoint = json => {
+		console.log(`saving checkpoint...`);
+		console.log(json);
+
+		fs.writeFileSync(`cnn-e-${json.epoch}.666`, encode(json))
+	}
+
+	parse(fs.readFileSync(file, { encoding: 'utf8' }));
 } else {
 	fetch(file).then(res => res.text()).then(parse);
 }

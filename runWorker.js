@@ -234,7 +234,7 @@ class MaxPool {
 		const numSamples = x.length / this.inputLength;
 
 		const out = FloatArray(numSamples * this.outputLength);
-		this.maxIndex = new Uint32Array(new SharedArrayBuffer(4 * out.length));
+		this.maxIndex = new Uint32Array(out.length);
 
 		for (let n = 0; n < numSamples; n++) {
 			for (let oy = 0; oy < this.outputSize; oy++) {
@@ -485,7 +485,7 @@ const epochs = 10;
 const networks = {
 	cnn: {
 		batchSize: 1, 
-		learningRate: 0.001, 
+		learningRate: 0.01, 
 		layers: () => [
 			new Conv(28, 1, 7, 16), 
 			new ReLU(), 
