@@ -624,15 +624,19 @@ const networks = {
 	}
 };
 
+let layers, inputLength, outputLength;
+
 const network = networks.cnn;
 const learningRate = network.learningRate;
 const batchSize = network.batchSize;
 
-const layers = network.layers();
-inspect(layers);
+function setModel(model) {
+	layers = model;
+	inspect(layers);
 
-const inputLength = layers[0].inputLength;
-const outputLength = layers[layers.length - 1].outputLength;
+	inputLength = layers[0].inputLength;
+	outputLength = layers[layers.length - 1].outputLength;
+}
 
 function train() {
 	const [trainX, trainY] = datasets.train;
@@ -640,10 +644,11 @@ function train() {
 
 	const trainCount = trainX.length / inputLength;
 
+	const startTime = performance.now();
 	let lastCheckpointT = 0;
 
 	for (let e = 0; e < epochs; e++) {
-		const startTime = performance.now();
+		const epochStartTime = performance.now();
 		lastCheckpointT = e;
 
 		for (let i = 0; i < trainCount; i += batchSize) {
@@ -655,18 +660,18 @@ function train() {
 			const preds = forward(batchX);
 			backward(batchY, preds);
 
+			const now = performance.now();
+			const batchTimeTaken = (now - batchStartTime) / 1000;
+			const timeTaken = (now - startTime) / 1000;
 			const f = Math.min(1, (i + batchSize) / trainCount);
-			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%, acc: ${(getAccuracy(batchY, preds, outputLength) * 100).toFixed(2)}%, time: ${((performance.now() - batchStartTime) / 1000).toFixed(3)}s`);
+			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%, batch acc: ${(getAccuracy(batchY, preds, outputLength) * 100).toFixed(2)}%, batch time: ${batchTimeTaken.toFixed(3)}s, time: ${timeTaken.toFixed(3)}s`);
 
 			if (e + f - lastCheckpointT > checkpointInterval) {
 				lastCheckpointT = e + f;
 				saveCheckpoint({
-					name: 'cnn666', 
 					epoch: e, 
 					epochPercent: f * 100, 
-					batchSize, 
-					learningRate, 
-					timeTaken: (performance.now() - startTime) / 1000, 
+					timeTaken, 
 					layers
 				});
 			}
@@ -680,9 +685,11 @@ function train() {
 		const valLoss = crossEntropy(valY, valPreds, outputLength);
 		const valAccuracy = getAccuracy(valY, valPreds, outputLength);
 
-		const timeTaken = performance.now() - startTime;
+		const now = performance.now();
+		const epochTimeTaken = (now - epochStartTime) / 1000;
+		const timeTaken = (now - startTime) / 1000;
 
-		console.log(`epoch ${e + 1}, train loss: ${trainLoss.toFixed(3)}, train acc: ${(trainAccuracy * 100).toFixed(2)}%, val loss: ${valLoss.toFixed(3)}, val acc: ${(valAccuracy * 100).toFixed(2)}%, time taken: ${(timeTaken / 1000).toFixed(2)}s`);
+		console.log(`epoch ${e + 1}, train loss: ${trainLoss.toFixed(3)}, train acc: ${(trainAccuracy * 100).toFixed(2)}%, val loss: ${valLoss.toFixed(3)}, val acc: ${(valAccuracy * 100).toFixed(2)}%, epoch time: ${epochTimeTaken.toFixed(3)}s, time: ${timeTaken.toFixed(3)}s`);
 	}
 }
 
@@ -776,10 +783,6 @@ function saveCheckpoint(json) {
 	console.log(json);
 }
 
-convolveXD();
-
-const file = 'mnist_train.csv';
-
 if (typeof window === 'undefined') {
 	const fs = require('fs');
 	
@@ -787,10 +790,15 @@ if (typeof window === 'undefined') {
 		console.log(`saving checkpoint...`);
 		console.log(json);
 
-		fs.writeFileSync(`cnn-e-${json.epoch}.666`, encode(json))
+		fs.writeFileSync(`cnn-e-${json.epoch}.666`, encode(json));
 	}
 
-	parse(fs.readFileSync(file, { encoding: 'utf8' }));
+	const readFile = file => fs.readFileSync(file, { encoding: 'utf8' });
+
+	const model = decode(readFile('cnn.666'));
+	setModel(model.layers);
+	parse(readFile('mnist_train.csv'));
 } else {
-	fetch(file).then(res => res.text()).then(parse);
+	setModel(network.layers());
+	fetch('mnist_train.csv').then(res => res.text()).then(parse);
 }
