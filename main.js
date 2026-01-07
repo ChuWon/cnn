@@ -1,804 +1,701 @@
-/*
-
-O = I - K + 1
-grad = OxO
-bias_grad = OxO
-kernel_grad = KxK
-input_grad = IxI
-
-bias_grad = grad
-kernel_grad = correlate(input, grad)
-I - O + 1
-I - (I - K + 1) + 1
-I - I + K - 1 + 1 = K
-
-input_grad = convolve(grad, kernel) = correlate(grad, rot180(kernel))
-I - K + 1 + (K - 1) = I
-
-convolve:
-expand input by border of zeroes with thickness (kernelSize - 1) & compute correlation in reverse.
-E = I + (K - 1) * 2
-Y = E - K + 1 = I + 2*K - 2 - K + 1 = I + K - 1
-
-*/
-
-class Conv {
-	constructor(inputSize, inputDepth, kernelSize, depth) {
-		this.inputSize = inputSize;
-		this.inputDepth = inputDepth;
-		this.kernelSize = kernelSize;
-		this.depth = depth;
-
-		this.outputSize = inputSize - kernelSize + 1;
-		this.inputLength = inputDepth * inputSize * inputSize;
-		this.outputLength = this.depth * this.inputDepth * this.outputSize * this.outputSize;
-
-		this.kernels = createParams(this.depth * this.inputDepth * this.kernelSize * this.kernelSize, 0.01);
-		this.biases = createParams(this.outputLength, 0.01);
-	}
-
-	forward(x) {
-		this.x = x;
-		return correlate(this.inputSize, this.inputDepth, this.kernelSize, this.depth, x, this.kernels, this.biases);
-	}
-
-	backward(grad) {
-		const numSamples = grad.length / this.outputLength;
-
-		const kernelGrad = correlate(this.inputSize, this.inputDepth, this.outputSize, this.depth, this.x, grad);
-		const inputGrad = convolve(this.outputSize, this.inputDepth, this.kernelSize, this.depth, grad, this.kernels);
-		const biasGrad = new Float32Array(this.biases.length);
-
-		for (let i = 0; i < this.outputLength; i++) {
-			for (let n = 0; n < numSamples; n++) {
-				biasGrad[i] += grad[n * this.outputLength + i];
-			}
-		}
-
-		updateParams(this.kernels, kernelGrad);
-		updateParams(this.biases, biasGrad);
-
-		return inputGrad;
-	}
-}
-
-class Activation {
-	constructor(f, fPrime) {
-		this.f = f;
-		this.fPrime = fPrime;
-	}
-
-	forward(x) {
-		this.x = x;
-
-		const out = new Float32Array(x.length);
-		for (let i = 0; i < x.length; i++) {
-			out[i] = this.f(x[i]);
-		}
-		return out;
-	}
-
-	backward(grad) {
-		const out = new Float32Array(grad.length);
-		for (let i = 0; i < grad.length; i++) {
-			out[i] = this.fPrime(this.x[i]) * grad[i];
-		}
-		return out;
-	}
-}
-
-class ReLU extends Activation {
-	constructor() {
-		super(
-			x => x > 0 ? x : 0, 
-			x => x > 0 ? 1 : 0
-		);
-	}
-}
-
-class Sigmoid extends Activation {
-	constructor() {
-		const sigmoid = x => 1 / (1 + Math.exp(-x));
-
-		super(
-			sigmoid, 
-			x => {
-				const s = sigmoid(x);
-				return s * (1 - s);
-			}
-		);
-	}
-}
-
-class Linear {
-	constructor(inputLength, outputLength) {
-		this.inputLength = inputLength;
-		this.outputLength = outputLength;
-
-		this.weights = createParams(outputLength * inputLength);
-		this.biases = createParams(outputLength);
-	}
-
-	forward(x) {
-		this.x = x;
-
-		const numSamples = x.length / this.inputLength;
-		const out = new Float32Array(numSamples * this.outputLength);
-
-		for (let n = 0; n < numSamples; n++) {
-			for (let o = 0; o < this.outputLength; o++) {
-				const ni = n * this.outputLength + o;
-				out[ni] = this.biases[o];
-				for (let i = 0; i < this.inputLength; i++) {
-					out[ni] += this.weights[o * this.inputLength + i] * x[n * this.inputLength + i];
-				}
-			}
-		}
-
-		return out;
-	}
-
-	backward(grad) {
-		const numSamples = grad.length / this.outputLength;
-
-		const weightGrad = new Float32Array(this.weights.length);
-
-		for (let i = 0; i < this.outputLength; i++) {
-			for (let j = 0; j < this.inputLength; j++) {
-				const ni = i * this.inputLength + j;
-				for (let k = 0; k < numSamples; k++) {
-					weightGrad[ni] += grad[i + k * this.outputLength] * this.x[j + k * this.inputLength];
-				}
-			}
-		}
-
-		const biasGrad = new Float32Array(this.biases.length);
-
-		for (let i = 0; i < this.outputLength; i++) {
-			for (let j = 0; j < numSamples; j++) {
-				biasGrad[i] += grad[j * this.outputLength + i];
-			}
-		}
-
-		const inputGrad = new Float32Array(numSamples * this.inputLength);
-
-		for (let i = 0; i < this.inputLength; i++) {
-			for (let j = 0; j < numSamples; j++) {
-				const ni = j * this.inputLength + i;
-				for (let k = 0; k < this.outputLength; k++) {
-					inputGrad[ni] += this.weights[k * this.inputLength + i] * grad[j * this.outputLength + k];
-				}
-			}
-		}
-
-		updateParams(this.weights, weightGrad);
-		updateParams(this.biases, biasGrad);
-
-		return inputGrad;
-	}
-}
-
-class MaxPool {
-	constructor(inputSize, kernelSize) {
-		this.inputSize = inputSize;
-		this.inputLength = inputSize * inputSize;
-		
-		this.kernelSize = kernelSize;
-		this.kernelLength = kernelSize * kernelSize;
-
-		this.outputSize = Math.floor(inputSize / 2);
-		this.outputLength = this.outputSize * this.outputSize;
-	}
-
-	forward(x) {
-		const numSamples = x.length / this.inputLength;
-
-		const out = new Float32Array(numSamples * this.outputLength);
-		this.maxIndex = new Uint32Array(out.length);
-
-		for (let n = 0; n < numSamples; n++) {
-			for (let oy = 0; oy < this.outputSize; oy++) {
-				for (let ox = 0; ox < this.outputSize; ox++) {
-					const ni = n * this.outputLength + (oy * this.outputSize + ox);
-
-					let max = -Infinity;
-					let maxIndex = -1;
-
-					for (let ky = 0; ky < this.kernelSize; ky++) {
-						for (let kx = 0; kx < this.kernelSize; kx++) {
-							const inputX = ox * this.kernelSize + kx;
-							const inputY = oy * this.kernelSize + ky;
-
-							const xi = n * this.inputLength + inputY * this.inputSize + inputX;
-							const v = x[xi];
-							if (v > max) {
-								max = v;
-								maxIndex = ky * this.kernelSize + kx;
-							}
-						}
-					}
-
-					out[ni] = max;
-					this.maxIndex[ni] = maxIndex;
-				}
-			}
-		}
-
-		return out;
-	}
-
-	backward(grad) {
-		const numSamples = grad.length / this.outputLength;
-
-		const inputGrad = new Float32Array(numSamples * this.inputLength);
-
-		for (let n = 0; n < numSamples; n++) {
-			for (let oy = 0; oy < this.outputSize; oy++) {
-				for (let ox = 0; ox < this.outputSize; ox++) {
-					const gi = n * this.outputLength + (oy * this.outputSize + ox);
-
-					const maxIndex = this.maxIndex[gi];
-					const kx = maxIndex % this.kernelSize;
-					const ky = (maxIndex - kx) / this.kernelSize;
-					const ni = n * this.inputLength + (oy * this.kernelSize + ky) * this.inputSize + (ox * this.kernelSize + kx);
-
-					inputGrad[ni] = grad[gi];
-				}
-			}
-		}
-
-		return inputGrad;
-	}
-}
-
-function createParams(n, f = 1) {
-	return Float32Array.from({ length: n }, () => (Math.random() - 0.5) * f);
-}
-
-function updateParams(params, grad) {
-	for (let i = 0; i < params.length; i++) {
-		params[i] -= grad[i] * learningRate;
-	}
-}
-
-function correlate(inputSize, inputDepth, kernelSize, depth, x, kernels, biases) {
-	const outputSize = inputSize - kernelSize + 1;
-	const inputLength = inputDepth * inputSize * inputSize;
-	const outputLength = depth * inputDepth * outputSize * outputSize;
-
-	const numSamples = x.length / inputLength;
-	const out = new Float32Array(biases ? numSamples * outputLength : outputLength);
-
-	for (let n = 0; n < numSamples; n++) {
-		for (let d = 0; d < depth; d++) {
-			for (let i = 0; i < inputDepth; i++) {
-				for (let oy = 0; oy < outputSize; oy++) {
-					for (let ox = 0; ox < outputSize; ox++) {
-						const bi = (d * inputDepth * outputSize * outputSize) + 
-							(i * outputSize * outputSize) + 
-							(oy * outputSize + ox);
-						
-						let ni = bi;
-						if (biases) {
-							ni += n * outputLength;
-							out[ni] = biases?.[bi] || 0;
-						}
-
-						for (let ky = 0; ky < kernelSize; ky++) {
-							for (let kx = 0; kx < kernelSize; kx++) {
-								const xi = n * inputLength + 
-									(i * inputSize * inputSize) + 
-									(oy + ky) * inputSize + (ox + kx);
-								const ki = (d * inputDepth * kernelSize * kernelSize) + 
-									(i * kernelSize * kernelSize) + 
-									(ky * kernelSize + kx);
-								out[ni] += x[xi] * kernels[ki];
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return out;
-}
-
-function convolve(inputSize, inputDepth, kernelSize, depth, x, kernels, biases) {
-	const outputSize = inputSize + kernelSize - 1;
-	const inputLength = inputDepth * inputSize * inputSize;
-	const outputLength = depth * inputDepth * outputSize * outputSize;
-	const borderSize = kernelSize - 1;
-
-	const numSamples = x.length / inputLength;
-	const out = new Float32Array(biases ? numSamples * outputLength : outputLength);
-
-	for (let n = 0; n < numSamples; n++) {
-		for (let d = 0; d < depth; d++) {
-			for (let i = 0; i < inputDepth; i++) {
-				for (let oy = 0; oy < outputSize; oy++) {
-					for (let ox = 0; ox < outputSize; ox++) {
-						const bi = (d * inputDepth * outputSize * outputSize) + 
-							(i * outputSize * outputSize) + 
-							(oy * outputSize + ox);
-						
-						let ni = bi;
-						if (biases) {
-							ni += n * outputLength;
-							out[ni] = biases?.[bi] || 0;
-						}
-
-						for (let ky = 0; ky < kernelSize; ky++) {
-							for (let kx = 0; kx < kernelSize; kx++) {
-								const inputX = ox + kx - borderSize;
-								const inputY = oy + ky - borderSize;
-
-								if (inputX >= 0 && inputX < inputSize && inputY >= 0 && inputY < inputSize) {
-									const xi = n * inputLength + 
-										(i * inputSize * inputSize) + 
-										inputY * inputSize + inputX;
-									const ki = (d * inputDepth * kernelSize * kernelSize) + 
-										(i * kernelSize * kernelSize) + 
-										(kernelSize - 1 - ky) * kernelSize + (kernelSize - 1 - kx);
-									out[ni] +=  x[xi] * kernels[ki];
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return out;
-}
-
-function softmax(x, outputLength) {
-	const numSamples = x.length / outputLength;
-
-	for (let i = 0; i < numSamples; i++) {
-		let max = -Infinity;
-
-		for (let j = 0; j < outputLength; j++) {
-			const z = x[i * outputLength + j];
-			z > max && (max = z);
-		}
-
-		let sum = 0;
-		for (let j = 0; j < outputLength; j++) {
-			const ni = i * outputLength + j;
-			const e = Math.exp(x[ni] - max);
-			x[ni] = e;
-			sum += e;
-		}
-
-		sum = 1 / sum;
-		for (let j = 0; j < outputLength; j++) {
-			x[i * outputLength + j] *= sum;
-		}
-	}
-
-	return x;
-}
-
-function crossEntropy(targets, predictions, outputLength) {
-	const numSamples = targets.length / outputLength;
-	
-	let sum = 0;
-	for (let i = 0; i < targets.length; i++) {
-		const p = predictions[i];
-		if (isFinite(p)) {
-			sum += targets[i] * -Math.log(p + 1e-12);
-		}
-	}
-
-	return sum / numSamples;
-}
-
-function softmaxCrossEntropyPrime(targets, predictions, outputLength) {
-	const numSamples = targets.length / outputLength;
-
-	const out = new Float32Array(targets.length);			
-	for (let i = 0; i < targets.length; i++) {
-		out[i] = (predictions[i] - targets[i]) / numSamples;
-	}
-	
-	return out;
-}
-
-function getAccuracy(targets, predictions, outputLength) {
-	let correct = 0;
-
-	for (let i = 0; i < targets.length; i += outputLength) {
-		let max = -Infinity;
-		let maxIndex = 0;
-		for (let j = 0; j < outputLength; j++) {
-			const prob = predictions[i + j];
-			if (prob > max) {
-				max = prob;
-				maxIndex = j;
-			}
-		}
-
-		if (targets[i + maxIndex] === 1) {
-			correct++;
-		}
-	}
-
-	const n = targets.length / outputLength;
-	return correct / n;
-}
-
-function convolveXD() {
-	console.log('>>> TESTING CONVOLVE >>>');
-
-	const x = [
-		1, 2, 3, 4, 
-		5, 6, 7, 8, 
-		9, 10, 11, 12, 
-		13, 14, 15, 16
-	];
-
-	const kernel = [
-		1, -4, 2,  
-		3, 5, 0, 
-		3, 2, 2
-	];
-
-	const target = [
-		1, -2, -3, -4, -10, 8, 
-		8, -3, 12, 19, 2, 16, 
-		27, 25, 55, 69, 28, 32, 
-		55, 65, 111, 125, 56, 48, 
-		66, 155, 186, 201, 126, 24, 
-		39, 68, 99, 106, 62, 32
-	];
-
-	console.log(`INPUT: [${x}]`);
-	console.log(`KERNEL: [${kernel}]`);
-	console.log(`TARGET: [${target}]`);
-
-	const inputSize = 4;
-	const kernelSize = 3;
-	const outputSize = inputSize + kernelSize - 1;
-	const borderSize = kernelSize - 1;
-
-	const out = new Float32Array(outputSize * outputSize);
-
-	for (let oy = 0; oy < outputSize; oy++) {
-		for (let ox = 0; ox < outputSize; ox++) {
-			const ni = oy * outputSize + ox;
-
-			for (let ky = 0; ky < kernelSize; ky++) {
-				for (let kx = 0; kx < kernelSize; kx++) {
-					const inputX = ox + kx - borderSize;
-					const inputY = oy + ky - borderSize;
-
-					if (inputX >= 0 && inputX < inputSize && inputY >= 0 && inputY < inputSize) {
-						const xi = inputY * inputSize + inputX;
-						const ki = (kernelSize - 1 - ky) * kernelSize + (kernelSize - 1 - kx);
-						out[ni] +=  x[xi] * kernel[ki];
-					}
-				}
-			}
-		}
-	}
-
-	console.log(`OUTPUT: [${out}]`);
-
-	const out2 = convolve(inputSize, 1, kernelSize, 1, x, kernel);
-	console.log(`OUTPUT2: [${out2}]`);
-
-	for (let i = 0; i < target.length; i++) {
-		if (target[i] !== out[i] || target[i] !== out2[i]) {
-			console.log(`TEST FAILED OwO!!!\nINDEX: ${i}\nTARGET: ${target[i]}\nVALUE: ${out[i]}\nVALUE2: ${out2[i]}`);
-			return false;
-		}
-	}
-
-	console.log(`TEST PASSED XD!`);
-	return true;
-}
-
-// dataset
-
-let data, datasets;
-
-function parse(text) {
-	data = [];
-
-	const lines = text.split('\n');
-	lines.shift();
-
-	for (let line of lines) {
-		line = line.trim();
-		if (!line) continue;
-
-		const items = line.split(',');
-		const label = parseInt(items.shift());
-		for (let i = 0; i < items.length; i++) {
-			items[i] = parseInt(items[i]) / 255;
-		}
-
-		data.push({
-			x: new Float32Array(items), 
-			y: label
-		});
-	}
-
-	data.sort(() => Math.random() - 0.5);
-
-	console.log(`dataset loaded! (${data.length} samples)`);
-
-	datasets = createDatasets(dataSplit, 0.8);
-	train();
-}
-
-function createDatasets(dataSplit, trainSplit) {
-	const partialData = data.slice(0, Math.floor(dataSplit * data.length));
-
-	const n = Math.floor(trainSplit * partialData.length);
-	const trainData = partialData.slice(0, n);
-	const valData = partialData.slice(n);
-
-	const train = prepareData(trainData);
-	const val = prepareData(valData);
-
-	return { train, val };
-}
-
-function prepareData(data) {
-	const x = new Float32Array(data.length * inputLength);
-	const y = new Uint8Array(data.length * outputLength);
-
-	const counter = {};
-
-	for (let i = 0; i < data.length; i++) {
-		const item = data[i];
-		x.set(item.x, i * inputLength);
-		y[i * outputLength + item.y] = 1;
-	
-		counter[item.y] = (counter[item.y] || 0) + 1;
-	}
-
-	let text = `${data.length} total samples:\n`;
-
-	for (const key in counter) {
-		const n = counter[key];
-		const percent = n / data.length * 100;
-		text += `${key} / ${n} / ${percent.toFixed(2)}%\n`;
-	}
-
-	console.log(text);
-
-	return [x, y];
-}
-
-function inspect(layers) {
-	let totalParams = 0;
-
-	let text = `>>> ${layers.length} layers >>>\n`;
-
-	for (let i = 0; i < layers.length; i++) {
-		const layer = layers[i];
-		text += `${layer.constructor.name}\n`;
-
-		for (const key in layer) {
-			const params = layer[key];
-			if (ArrayBuffer.isView(params)) {
-				totalParams += params.length;
-				text += `  ${key}: ${params.length}\n`;
-			}
-		}
-	}
-
-	text += `total params: ${totalParams}\n`;
-
-	console.log(text);
-}
-
-const dataSplit = 1;
-const trainSplit = 0.8;
-const epochs = 10;
-const checkpointInterval = 1 / 100;
-
-const networks = {
-	cnn: {
-		batchSize: 1, 
-		learningRate: 0.01, 
-		layers: () => [
-			new Conv(28, 1, 7, 16), 
-			new ReLU(), 
-			new MaxPool(22, 2), 
-			new Linear(16 * 11 * 11, 10)
-		]
-	},
-	nn: {
-		batchSize: 16, 
-		learningRate: 0.5, 
-		layers: () => [
-			new Linear(28 * 28, 4 * 4), 
-			new ReLU(), 
-			new Linear(4 * 4, 10)
-		]
-	}
-};
-
-let layers, inputLength, outputLength;
-
-const network = networks.cnn;
-const learningRate = network.learningRate;
-const batchSize = network.batchSize;
-
-function setModel(model) {
-	layers = model;
-	inspect(layers);
-
-	inputLength = layers[0].inputLength;
-	outputLength = layers[layers.length - 1].outputLength;
-}
-
-function train() {
-	const [trainX, trainY] = datasets.train;
-	const [valX, valY] = datasets.val;
-
-	const trainCount = trainX.length / inputLength;
-
-	const startTime = performance.now();
-	let lastCheckpointT = 0;
-
-	for (let e = 0; e < epochs; e++) {
-		const epochStartTime = performance.now();
-		lastCheckpointT = e;
-
-		for (let i = 0; i < trainCount; i += batchSize) {
-			const batchStartTime = performance.now();
-
-			const batchX = trainX.slice(i * inputLength, (i + batchSize) * inputLength);
-			const batchY = trainY.slice(i * outputLength, (i + batchSize) * outputLength);
-
-			const preds = forward(batchX);
-			backward(batchY, preds);
-
-			const now = performance.now();
-			const batchTimeTaken = (now - batchStartTime) / 1000;
-			const timeTaken = (now - startTime) / 1000;
-			const f = Math.min(1, (i + batchSize) / trainCount);
-			console.log(`epoch ${e + 1}: ${(f * 100).toFixed(2)}%, batch acc: ${(getAccuracy(batchY, preds, outputLength) * 100).toFixed(2)}%, batch time: ${batchTimeTaken.toFixed(3)}s, time: ${timeTaken.toFixed(3)}s`);
-
-			if (e + f - lastCheckpointT > checkpointInterval) {
-				lastCheckpointT = e + f;
-				saveCheckpoint({
-					epoch: e, 
-					epochPercent: f * 100, 
-					timeTaken, 
-					layers
-				});
-			}
-		}
-
-		const trainPreds = forward(trainX);
-		const trainLoss = crossEntropy(trainY, trainPreds, outputLength);
-		const trainAccuracy = getAccuracy(trainY, trainPreds, outputLength);
-
-		const valPreds = forward(valX);
-		const valLoss = crossEntropy(valY, valPreds, outputLength);
-		const valAccuracy = getAccuracy(valY, valPreds, outputLength);
-
-		const now = performance.now();
-		const epochTimeTaken = (now - epochStartTime) / 1000;
-		const timeTaken = (now - startTime) / 1000;
-
-		console.log(`epoch ${e + 1}, train loss: ${trainLoss.toFixed(3)}, train acc: ${(trainAccuracy * 100).toFixed(2)}%, val loss: ${valLoss.toFixed(3)}, val acc: ${(valAccuracy * 100).toFixed(2)}%, epoch time: ${epochTimeTaken.toFixed(3)}s, time: ${timeTaken.toFixed(3)}s`);
-	}
-}
-
-function forward(x) {
-	let y = x;
-	for (let i = 0; i < layers.length; i++) {
-		y = layers[i].forward(y);
-	}
-	y = softmax(y, layers[layers.length - 1].outputLength);
-	return y;
-}
-
-function backward(targets, predictions) {
-	let grad = softmaxCrossEntropyPrime(targets, predictions, outputLength);
-	for (let i = layers.length - 1; i >= 0; i--) {
-		grad = layers[i].backward(grad);
-	}
-}
-
-function encode(object) {
-	const ignoreMap = {
-		x: 1, 
-		maxIndex: 1
-	};
-
-	return JSON.stringify(object, (key, value) => {
-		if (key in ignoreMap) return;
-
-		if (value?.constructor !== Object) {
-			if (ArrayBuffer.isView(value)) {
-				return {
-					cls: value.constructor.name, 
-					data: bufferToBase64(value.buffer)
-				};
-			} else {
-				value.cls = value.constructor.name;
-			}
-		}
-
-		return value;
-	}, '\t');
-}
-
-function decode(json) {
-	const classes = {
-		Linear,
-		Conv,  
-		ReLU, 
-		Sigmoid, 
-		MaxPool
-	};
-
-	return JSON.parse(json, (key, value) => {
-		if (value?.cls) {
-			const cls = globalThis[value.cls] || classes[value.cls];
-			if (!cls) throw new Error('XD XD missing class: ' + value.cls);
-
-			if (cls.prototype.BYTES_PER_ELEMENT) {
-				value = new cls(base64ToBuffer(value.data));
-			} else {
-				value = Object.assign(new cls(), value);
-			}
-		}
-
-		return value;
+const worker = new Worker('./webWorker.js');
+
+let progress = 0;
+let progressText = 'idle';
+
+let loaded = false;
+
+let modelId;
+function createModel() {
+	reset();
+	worker.postMessage({
+		id: 'createModel', 
+		modelId
 	});
 }
 
-function bufferToBase64(buffer) {
-	const bytes = new Uint8Array(buffer);
-	let text = '';
-	for (let i = 0; i < bytes.length; i++) {
-		text += String.fromCharCode(bytes[i]);
-	}
-
-	return btoa(text);
+function reset(id) {
+	modelId = id || Math.random().toString(32).slice(2);
+	epoch = 0;
+	lastCheckpointT = 0;
+	epoching = false;
+	resetGraphs();
 }
 
-function base64ToBuffer(base64) {
-	const text = atob(base64);
-	const bytes = new Uint8Array(text.length);
+let epoch = 0;
+let epochPercent = 0;
+let epoching = false;
+let lastCheckpointT = 0;
 
-	for (let i = 0; i < text.length; i++) {
-		bytes[i] = text.charCodeAt(i);
-	}
-
-	return bytes.buffer;
+function onTrain(msg) {
+	epoching = false;
+	epoch = msg.epoch;
+	epochPercent = (msg.epochPercent * 100).toFixed(2);
+	progress = Math.min(1, (msg.epoch + msg.epochPercent) / epochs);
+	progressText = `training epoch ${epoch}/${epochs}${msg.epochPercent ? ` (${epochPercent}%)` : ''}`;
 }
 
-function saveCheckpoint(json) {
-	console.log(json);
+worker.onmessage = function (event) {
+	const msg = event.data;
+
+	switch (msg.id) {
+		case 'progress':
+			progress = msg.percent;
+			progressText = `loading dataset ${(msg.percent * 100).toFixed(2)}%`;
+			break;
+
+		case 'loaded':
+			loaded = true;
+			createModel();
+			createDatasets();
+			setLearningRate();
+			setBatchSize();
+			break;
+
+		case 'failed':
+			alert(`Failed to load dataset, can't train model. Reload the page to retry.`);
+			break;
+
+		case 'epochBatch':
+			if (msg.modelId !== modelId) return;
+			onTrain(msg);
+			addGraph('batchTime', msg.batchTimeTaken);
+			setGraph('epochTime', msg.epochTimeTaken);
+
+			if (settings.autoSaveCheckpoint) {
+				const t = msg.epoch + msg.epochPercent;
+				if (t - lastCheckpointT > settings.checkpointSaveInterval) {
+					lastCheckpointT = t;
+					saveCheckpoint();
+				}
+			}
+			break;
+
+		case 'epoch':
+			if (msg.modelId !== modelId) return;
+			onTrain(msg);
+			addGraph('epochTime', msg.epochTimeTaken);
+			addGraph('trainLoss', msg.trainLoss);
+			addGraph('trainAccuracy', msg.trainAccuracy);
+			addGraph('valLoss', msg.valLoss);
+			addGraph('valAccuracy', msg.valAccuracy);
+			break;
+
+		case 'prediction': {
+			let maxIndex = -1;
+			let max = -Infinity;
+
+			for (let i = 0; i < msg.y.length; i++) {
+				const p = msg.y[i];
+				if (p > max) {
+					maxIndex = i;
+					max = p;
+				}
+			}
+
+			console.log(`probs: ${msg.y}\nprediction: ${maxIndex}`);
+			alert(`prediction: ${maxIndex}`);
+		}	break;
+
+		case 'checkpoint':
+			const a = document.createElement('a');
+			a.href = URL.createObjectURL(new Blob([msg.json], { type: 'text/plain' }));
+			a.download = `cnn-e${epoch}-${epochPercent}%.666`;
+			a.click();
+			break;
+
+		case 'checkpointData':
+			reset(msg.modelId);
+
+			const data = msg.data;
+
+			for (const key in data.settings) {
+				const v = data.settings[key];
+				if (typeof settings[key] === typeof v) {
+					setSetting(key, v);
+				}
+			}
+
+			for (const key in data.graphs) {
+				if (key in graphs) {
+					const list = data.graphs[key];
+					for (let i = 0; i < list.length; i++) {
+						addGraph(key, list[i]);
+					}
+				}
+			}
+			break;
+
+		case 'checkpointError':
+			alert(`Failed to load checkpoint!\nError: ${msg.error}`);
+			break;
+
+		default:
+			console.log(`Unknown msg id from worker: ${msg.id}`);
+	}
 }
 
-if (typeof window === 'undefined') {
-	const fs = require('fs');
-	
-	saveCheckpoint = json => {
-		console.log(`saving checkpoint...`);
-		console.log(json);
+function setLearningRate() {
+	worker.postMessage({
+		id: 'setLearningRate', 
+		value: settings.learningRate
+	});
+}
 
-		fs.writeFileSync(`cnn-e-${json.epoch}.666`, encode(json));
+function setBatchSize() {
+	worker.postMessage({
+		id: 'setBatchSize', 
+		value: settings.batchSize
+	});
+}
+
+function createDatasets() {
+	loaded && worker.postMessage({
+		id: 'createDatasets', 
+		trainSplit: settings.trainSplit, 
+		dataSplit: settings.dataSplit
+	});
+}
+
+function saveCheckpoint() {
+	const data = {
+		settings, 
+		graphs: {}
 	}
 
-	const readFile = file => fs.readFileSync(file, { encoding: 'utf8' });
+	for (const key in graphs) {
+		data.graphs[key] = new Float32Array(graphs[key].points);
+	}
 
-	const model = decode(readFile('cnn.666'));
-	setModel(model.layers);
-	parse(readFile('mnist_train.csv'));
-} else {
-	setModel(network.layers());
-	fetch('mnist_train.csv').then(res => res.text()).then(parse);
+	worker.postMessage({
+		id: 'checkpointData', 
+		data
+	});
+}
+
+function importCheckpoint(json) {
+	worker.postMessage({
+		id: 'checkpoint', 
+		json
+	});
+}
+
+function predict(image) {
+	const size = Math.sqrt(inputLength);
+
+	const canvas = document.createElement('canvas');
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext('2d');
+
+	ctx.drawImage(image, 0, 0, size, size);
+
+	const imageData = ctx.getImageData(0, 0, size, size);
+
+	const x = new Float32Array(inputLength);
+	for (let i = 0; i < inputLength; i++) {
+		x[i] = imageData.data[i * 4 + 3] / 255;
+	}
+
+	worker.postMessage({
+		id: 'predict', 
+		modelId, 
+		x
+	});
+}
+
+function isTraining() {
+	return settings.trainingEnabled && (epoch < epochs || settings.endlessTraining);
+}
+
+const epochs = 5;
+
+const inputLength = 28 * 28;
+
+function Grid(size = 20) {
+	const canvas = document.createElement('canvas');
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext('2d');
+
+	ctx.fillStyle = '#151515';
+	ctx.fillRect(0, 0, size, size);
+
+	ctx.beginPath();
+	const s = size / 2;
+	ctx.moveTo(s, 0);
+	ctx.lineTo(s, size);
+	ctx.moveTo(0, s);
+	ctx.lineTo(size, s);
+	ctx.lineWidth = size * 0.04;
+	ctx.strokeStyle = 'hsla(0, 0%, 100%, 0.02)';
+	ctx.stroke();
+
+	return canvas;
+}
+
+function SketchUI() {
+	const size = 150;
+	const el = fromHtml(`<div style="
+		position: absolute;
+		right: 12px;
+		bottom: 12px;
+		display: flex;
+		flex-direction: column;
+		align-items: end;
+		grid-gap: 5px;
+		pointer-events: all;
+	">
+		<div class="row">
+			<div class="btn predict-btn">predict</div>
+			<div class="btn clear-btn">clear</div>
+		</div>
+		<canvas style="
+			width: ${size}px;
+			height: ${size}px;
+			border-radius: 5px;
+			background: hsla(0, 0%, 20%, 0.3);
+			border: 2px solid hsla(0, 0%, 100%, 0.2);
+			pointer-events: all;
+		"></canvas>
+		<div>draw a digit xp</div>
+	</div>`);
+	uiEl.appendChild(el);
+
+	const canvas = el.querySelector('canvas');
+	canvas.width = canvas.height = size * window.devicePixelRatio;
+	const ctx = canvas.getContext('2d');
+
+	el.querySelector('.clear-btn').onclick = function () {
+		paths.length = 0;
+		path = null;
+		draw();
+	}
+
+	el.querySelector('.predict-btn').onclick = function () {
+		predict(canvas);
+	}
+
+	const paths = [];
+
+	let path;
+	canvas.onmousedown = function (event) {
+		if (event.button === 0 && !path) {
+			path = [getPointer(event)];
+			paths.push(path);
+			draw();
+		}
+	}
+	window.addEventListener('mousemove', event => {
+		if (path) {
+			path.push(getPointer(event));
+			draw();
+		}
+	});
+	window.addEventListener('mouseup', event => {
+		if (event.button === 0) {
+			path = null;
+		}
+	});
+
+	function draw() {
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+		ctx.save();
+		ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+		ctx.filter = 'blur(2px)';
+		
+		ctx.beginPath();
+		for (const path of paths) {
+			ctx.moveTo(...path[0]);
+			ctx.lineTo(...path[0]);
+			for (let i = 1; i < path.length; i++) {
+				ctx.lineTo(...path[i])
+			}
+		}
+
+		ctx.lineWidth = 15;
+		ctx.strokeStyle = '#fff';
+		ctx.lineCap = ctx.lineJoin = 'round';
+		ctx.stroke();
+
+		ctx.restore();
+	}
+
+	function getPointer(event) {
+		const box = canvas.getBoundingClientRect();
+		return [
+			(event.clientX - box.x) / box.width * size, 
+			(event.clientY - box.y) / box.height * size
+		];
+	}
+
+	return el;
+}
+
+// ui
+
+const canvas = document.getElementById('canvas');
+
+const options = {
+	antilias: true, 
+	alpha: true
+};
+const gl = canvas.getContext('webgl', options) || canvas.getContext('experimental-webgl', options);
+
+const hudCanvas = document.getElementById('hudCanvas');
+const hudCtx = hudCanvas.getContext('2d');
+
+resizeCanvas();
+
+const uiEl = document.querySelector('.ui');
+const headerEl = document.querySelector('.header');
+const sketchEl = SketchUI();
+
+function resizeCanvas() {
+	canvas.width = window.innerWidth * window.devicePixelRatio;
+	canvas.height = window.innerHeight * window.devicePixelRatio;
+
+	hudCanvas.width = canvas.width;
+	hudCanvas.height = canvas.height;
+}
+
+function resize() {
+	resizeCanvas();
+
+	const scale = Math.max(window.innerWidth / 1366, window.innerHeight / 768);
+
+	Object.assign(uiEl.style, {
+		transform: `scale(${scale})`, 
+		width: window.innerWidth / scale + 'px', 
+		height: window.innerHeight / scale + 'px', 
+	});
+}
+
+window.onresize = function () {
+	resize();
+}
+resize();
+
+const Void = () => {}
+
+const settingsEl = document.querySelector('.settings');
+
+const settings = {
+	trainingEnabled: true, 
+	endlessTraining: false, 
+	autoSaveCheckpoint: false, 
+	learningRate: [0.01, 0.01, 1, 0.01], 
+	checkpointSaveInterval: [0.1, 0.01, 1, 0.01], 
+	batchSize: [1, 1, 666, 1], 
+	trainSplit: [0.8, 0.01, 0.99, 0.01], 
+	dataSplit: [1, 0.01, 1, 0.01]
+};
+
+const settingOnChange = {
+	learningRate: setLearningRate, 
+	trainSplit: createDatasets, 
+	dataSplit: createDatasets, 
+	batchSize: setBatchSize
+};
+
+for (const key in settings) {
+	const value = settings[key];
+
+	if (Array.isArray(value)) {
+		const [n, min, max, step] = value;
+		settings[key] = n;
+
+		const el = fromHtml(`<div class="row">
+			<div>${fromCamel(key)}:</div>
+			<input type="range" class="range" min="${min}" max="${max}" step="${step}" id="${key}">
+			<div></div>
+		</div>`);
+
+		const rangeEl = el.querySelector('.range');
+		rangeEl.value = n;
+		rangeEl.nextElementSibling.innerText = n;
+		rangeEl.onchange = function () {
+			settings[key] = parseFloat(this.value);
+			this.nextElementSibling.innerText = settings[key];
+			settingOnChange[key] && settingOnChange[key](settings[key]);
+		}
+		rangeEl.oninput = function () {
+			this.nextElementSibling.innerText = this.value;
+		}
+
+		settingsEl.appendChild(el);
+	} else {
+		const el = fromHtml(`<label class="row">
+			<input type="checkbox" class="checkbox" id="${key}">
+			<div>${fromCamel(key)}</div>
+		</label>`);
+
+		const checkboxEl = el.querySelector('.checkbox');
+		checkboxEl.checked = value;
+
+		checkboxEl.onchange = function () {
+			settings[key] = this.checked;
+			settingOnChange[key] && settingOnChange[key](settings[key]);
+		}
+
+		settingsEl.appendChild(el);
+	}
+}
+
+function setSetting(key, value) {
+	settings[key] = value;
+	const el = document.getElementById(key);
+	el.value = value;
+	el.onchange();
+}
+
+function fromCamel(text){
+	text = text.replace(/([A-Z])/g,' $1');
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function fromHtml(html) {
+	const div = document.createElement('div');
+	div.innerHTML = html;
+	return div.children[0];
+}
+
+const btnsEl = fromHtml(`<div class="row" style="margin-top: 3px;">
+	<div class="btn export-btn">export</div>
+	<div class="btn import-btn">import</div>
+</div>`);
+settingsEl.appendChild(btnsEl);
+
+btnsEl.querySelector('.export-btn').onclick = saveCheckpoint;
+
+btnsEl.querySelector('.import-btn').onclick = function () {
+	const el = document.createElement('input');
+	el.type = 'file';
+	el.accept = '.666';
+
+	el.oninput = function (event) {
+		const file = this.files[0];
+		if (!file) return;
+
+		const reader = new FileReader();
+		reader.onload = function () {
+			importCheckpoint(this.result);
+		}
+		reader.readAsText(file);
+	}
+
+	el.click();
+}
+
+// rendering
+
+CanvasRenderingContext2D.prototype.scale2 = function (f) {
+	this.scale(f, f);
+}
+
+const colors = {
+	activation: '#ffeb3b', 
+	label: '#fb382a'
+};
+
+let graphs;
+
+function initGraphs() {
+	graphs = {};
+
+	const list = ['trainLoss', 'trainAccuracy', 'valLoss', 'valAccuracy', 'batchTime', 'epochTime'];
+
+	for (let i = 0; i < list.length; i++) {
+		const key = list[i];
+		graphs[key] = {
+			name: fromCamel(key), 
+			points: [], 
+			max: -Infinity,
+			i: 1 + i, 
+			visible: true
+		};
+	}
+}
+
+function addGraph(name, y) {
+	if (!isFinite(y)) y = 0;
+	const graph = graphs[name];
+	graph.points.push(y);
+	graph.max = Math.max(graph.max, y);
+
+	if (graph.points.length > 4666) {
+		graph.points.shift();
+		graph.max = Math.max.apply(Math, graph.points);
+	}
+}
+
+function setGraph(name, y) {
+	if (!isFinite(y)) y = 0;
+	const graph = graphs[name];
+	graph.points[Math.max(graph.points.length - 1, 0)] = y;
+	graph.max = Math.max(graph.max, y);
+}
+
+function resetGraphs() {
+	for (const key in graphs) {
+		const graph = graphs[key];
+		graph.points = [];
+		graph.max = -Infinity;
+	}
+}
+
+initGraphs();
+
+function drawHud(ctx) {
+	const canvas = ctx.canvas;
+	const scale = Math.max(canvas.width / 1366, canvas.height / 768);
+
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+	const W = canvas.width / scale;
+	const H = canvas.height / scale;
+
+	ctx.save();
+	ctx.scale2(scale);
+
+	ctx.save();
+	ctx.translate(12, H - 12 - 16);
+
+	const graphWidth = 90;
+	const graphHeight = 50;
+
+	for (const key in graphs) {
+		const graph = graphs[key];
+		if (!graph.visible) continue;
+
+		ctx.save();
+		showT < 1 && ctx.translate(0, (1 - Math.pow(showT, graph.i)) * graphHeight * 4);
+
+		ctx.beginPath();
+		let y = 0;
+		if (graph.points.length === 0) {
+			y = -graphHeight;
+			ctx.lineTo(0, y);
+		} else {
+			const l = Math.max(1, graph.points.length - 1);
+			for (let i = 0; i < graph.points.length; i++) {
+				const v = graph.points[i];
+				const x = i / l * graphWidth;
+				y = -v / graph.max * graphHeight;
+				ctx.lineTo(x, y);
+			}
+		}
+		ctx.lineTo(graphWidth, y);
+		ctx.lineTo(graphWidth, 0);
+		ctx.lineTo(0, 0);
+		ctx.closePath();
+		ctx.fillStyle = '#333';
+		ctx.globalAlpha = 0.3;
+		ctx.fill();
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = '#888';
+		ctx.globalAlpha = 1;
+		ctx.stroke();
+
+		ctx.fillStyle = '#888';
+		ctx.font = 'normal 16px monospace';
+		ctx.textBaseline = 'bottom';
+		ctx.textAlign = 'right';
+		const n = graph.points.length > 0 ? graph.points[graph.points.length - 1] : 0;
+		ctx.fillText(n.toFixed(2), graphWidth, 0);
+
+		ctx.fillStyle = '#fff';
+		ctx.font = 'normal 10px monospace';
+		ctx.textBaseline = 'top';
+		ctx.textAlign = 'left';
+		ctx.fillText(graph.name, 0, 7);
+
+		ctx.restore();
+
+		ctx.translate(graphWidth + 15, 0);
+	}
+
+	ctx.restore();
+
+	//
+
+	ctx.save();
+	ctx.translate(-400 * (1 - showT), H - 130);
+
+	ctx.beginPath();
+	ctx.rect(-5, -18, 250 + 5, 36);
+	ctx.fillStyle = '#333';
+	ctx.globalAlpha = 0.3;
+	ctx.fill();
+	ctx.lineWidth = 1;
+	ctx.strokeStyle = '#888';
+	ctx.lineCap = ctx.lineJoin = 'round';
+	ctx.globalAlpha = 1;
+	ctx.stroke();
+
+	ctx.globalAlpha = 0.1;
+	ctx.fillStyle = '#fff';
+	ctx.fillRect(0, -14, 246 * progress, 28);
+
+	ctx.globalAlpha = 1;
+	ctx.fillStyle = '#fff';
+	ctx.font = 'normal 10px monospace';
+	ctx.textBaseline = 'middle';
+	ctx.textAlign = 'left';
+	ctx.fillText(progressText + (progress !== 1 ? '.'.repeat((now / 1000 % 1) * 10) : ''), 10, 0);
+
+	ctx.restore();
+
+	ctx.restore();
+}
+
+let now = 0;
+let lastTime = Date.now();
+let dt = 0;
+let dts = 0;
+
+let showT = 0;
+
+function update() {
+	now = Date.now();
+	dt = now - lastTime;
+	dts = dt / 1000;
+	lastTime = now;
+
+	const lf = getLerpFactor(0.1);
+	showT = lerp(showT, 1, lf);
+	headerEl.style.transform = `translateX(${(1 - showT) * 200}%)`;
+	settingsEl.style.transform = `translateY(${(1 - showT) * -200}%)`;
+	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
+
+	if (loaded && isTraining() && !epoching) {
+		worker.postMessage({
+			id: 'train'
+		});
+		epoching = true;
+	}
+}
+
+function animate() {
+	update();
+	drawHud(hudCtx);
+	window.requestAnimationFrame(animate);
+}
+
+animate();
+
+function lerpAngle(a, b, t) {
+	let da = (b - a) % PI2;
+	da = 2 * da % PI2 - da;
+	return a + da * t;
+}
+
+function lerp(start, target, t) {
+	const d = target - start;
+	if (Math.abs(d) < 1e-4) return target;
+	return start + d * t;
+}
+
+function getLerpFactor(f) {
+	return 1 - Math.exp(-f * dt / 16);
 }

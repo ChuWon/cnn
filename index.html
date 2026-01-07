@@ -9,13 +9,170 @@
 		body {
 			margin: 0;
 			overflow: hidden;
+			user-select: none;
+			color: #fff;
+			font-family: monospace;
+			font-size: 10px;
+			background: #151515;
+		}
+
+		#canvas, #hudCanvas, .ui {
+			position: absolute;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+		}
+
+		.ui, #hudCanvas {
+			opacity: 0.7;
+			pointer-events: none;
+			transform-origin: 0 0;
+		}
+
+		.header {
+			position: absolute;
+			right: 12px;
+			top: 12px;
+			display: flex; 
+			grid-gap: 4px;
+			flex-direction: column;
+			align-items: end;
+			font-size: 12px;
+		}
+
+		.title {
+			font-size: 16px;
+		}
+
+		.range {
+			--color: #888;
+			-webkit-appearance: none;
+			outline: 0;
+			position: relative;
+			overflow: hidden;
+			font-size: 15px;
+			height: 1em;
+			width: 5em;
+			cursor: col-resize;
+			border-radius: 0;
+			margin: 0;
+			flex: 1;
+		}
+
+		::-webkit-slider-runnable-track {
+			background: #444;
+		}
+
+		::-webkit-slider-thumb {
+			-webkit-appearance: none;
+			width: 0.3em;
+			height: 1em;
+			background: #ccc;
+			box-shadow: -100em 0 0 100em var(--color);
+		}
+
+		::-moz-range-track {
+			height: 1em;
+			background: #aaa;
+		}
+
+		::-moz-range-thumb {
+			width: 0.3em;
+			height: 1em;
+			background: #fff;
+			box-shadow: -100em 0 0 100em var(--color);
+			border-radius: 0 !important;
+		}
+
+		.checkbox {
+			font-size: 16px;
+			width: 1em;
+			height: 1em;
+			background: #777;
+			margin: 0;
+			appearance: none;
+			-webkit-appearance: none;
+			position: relative;
+			cursor: pointer;
+			outline: 0;
+		}
+
+		.checkbox:checked {
+			background: #ccc;
+		}
+
+		.settings {
+			position: absolute;
+			left: 12px;
+			top: 12px;
+			display: flex;
+			grid-gap: 5px;
+			flex-direction: column;
+			align-items: start;
+		}
+
+		.settings * {
+			pointer-events: all;
+		}
+
+		label {
+			cursor: pointer;
+		}
+
+		.row {
+			display: flex;
+			grid-gap: 5px;
+			align-items: center;
+		}
+
+		.info {
+			width: 280px;
+			padding: 6px;
+			border-radius: 5px;
+			background: hsla(0, 0%, 20%, 0.3);
+			border: 2px solid hsla(0, 0%, 100%, 0.2);
+			margin-bottom: 5px;
+		}
+
+		.btn {
+			color: #fff;
+			padding: 0.4em 0.7em;
+			background: hsla(0, 0%, 20%, 0.3);
+			border: 2px solid hsla(0, 0%, 100%, 0.2);
+			border-radius: 4px;
+			cursor: pointer;
+		}
+
+		select {
+			font-family: inherit;
+			font-size: inherit;
+			padding: 0;
+			margin: 0;
+			width: 23px;
+			border: 0;
+			background: #363636;
+			color: inherit;
+			outline: 0;
+			width: 100px;
+			height: 18px;
 		}
 
 	</style>
 </head>
 <body>
-	<h1>cnn moment</h1>
-	<p>incomplete project. see console xp</p>
+	<canvas id="canvas"></canvas>
+	<canvas id="hudCanvas"></canvas>
+	<div class="ui">
+		<div class="header">
+			<div class="title">Conv Neural Network LOL</div>
+			<div>by Chu Won XD</div>
+			<div>jus4randi<3</div>
+		</div>
+		<div class="settings">
+			<div class="info">convolutional neural net from scratch in js moment. training 1 epoch takes 30mins on a 2021 $300 lappy wappy xp xp</div>
+		</div>
+	</div>
 	<script src="main.js"></script>
 </body>
 </html>

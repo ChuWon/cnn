@@ -1,6 +1,6 @@
 {
-	"name": "cnn666",
-	"epoch": 3,
+	"data": {}, 
+	"graphs": {}, 
 	"layers": [
 		{
 			"inputSize": 28,
