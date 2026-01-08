@@ -699,19 +699,21 @@ function drawHud(ctx) {
 		if (pointerX > a.x && pointerX < b.x && pointerY > a.y && pointerY < b.y) {
 			const f = (pointerX - a.x) / (b.x - a.x);
 			const x = f * graphWidth;
-			let y;
+			
 			if (graph.points.length > 0) {
 				const i = Math.round(f * (graph.points.length - 1));
 				n = graph.points[i];
-				y = -n / graph.max * graphHeight;
-			} else {
-				y = -graphHeight;
 			}
+
+			ctx.save();
+			ctx.clip();
 
 			ctx.beginPath();
 			ctx.moveTo(x, 0);
-			ctx.lineTo(x, y);
+			ctx.lineTo(x, -graphHeight);
 			ctx.stroke();
+
+			ctx.restore();
 		}
 
 		ctx.fillStyle = '#888';
