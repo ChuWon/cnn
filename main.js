@@ -571,6 +571,15 @@ function initGraphs() {
 			visible: true
 		};
 	}
+
+	graphs.epochTime.formatter = formatTime;
+	graphs.batchTime.formatter = formatTime;
+}
+
+function formatTime(s) {
+	const m = Math.floor(s / 60);
+	s = s % 60;
+	return m > 0 ? `${m}m ${Math.floor(s)}s` : `${s.toFixed(2)}s`;
 }
 
 function addGraph(name, y) {
@@ -681,12 +690,35 @@ function drawHud(ctx) {
 		ctx.globalAlpha = 1;
 		ctx.stroke();
 
+		let n = graph.points[graph.points.length - 1] || 0;
+
+		const matrix = ctx.getTransform();
+		const a = new DOMPoint(0, -graphHeight).matrixTransform(matrix);
+		const b = new DOMPoint(graphWidth, 0).matrixTransform(matrix);
+
+		if (pointerX > a.x && pointerX < b.x && pointerY > a.y && pointerY < b.y) {
+			const f = (pointerX - a.x) / (b.x - a.x);
+			const x = f * graphWidth;
+			let y;
+			if (graph.points.length > 0) {
+				const i = Math.round(f * (graph.points.length - 1));
+				n = graph.points[i];
+				y = -n / graph.max * graphHeight;
+			} else {
+				y = -graphHeight;
+			}
+
+			ctx.beginPath();
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, y);
+			ctx.stroke();
+		}
+
 		ctx.fillStyle = '#888';
 		ctx.font = 'normal 16px monospace';
 		ctx.textBaseline = 'bottom';
 		ctx.textAlign = 'right';
-		const n = graph.points.length > 0 ? graph.points[graph.points.length - 1] : 0;
-		ctx.fillText(n.toFixed(2), graphWidth, 0);
+		ctx.fillText(graph.formatter ? graph.formatter(n) : n.toFixed(2), graphWidth, 0);
 
 		ctx.fillStyle = '#fff';
 		ctx.font = 'normal 10px monospace';
@@ -731,6 +763,13 @@ function drawHud(ctx) {
 	ctx.restore();
 
 	ctx.restore();
+}
+
+let pointerX = 0;
+let pointerY = 0;
+document.onmousemove = function (event) {
+	pointerX = event.clientX / window.innerWidth * hudCanvas.width;
+	pointerY = event.clientY / window.innerHeight * hudCanvas.height;
 }
 
 let now = 0;
