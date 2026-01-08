@@ -607,13 +607,11 @@ function inspect(layers) {
 let e = 0;
 let i = 0;
 let epochTimeTaken = 0;
-let epochCorrect = 0;
 let timeTaken = 0;
 
 function train() {
 	const [trainX, trainY] = datasets.train;
 	const [valX, valY] = datasets.val;
-	const trainCount = trainX.length / inputLength;
 
 	const batchStartTime = performance.now();
 
@@ -649,7 +647,6 @@ function train() {
 		i = 0;
 		e++;
 		epochTimeTaken = 0;
-		epochCorrect = 0;
 
 		const trainPreds = forward(trainX);
 		const trainLoss = crossEntropy(trainY, trainPreds, outputLength);
@@ -691,12 +688,12 @@ function backward(targets, predictions) {
 	}
 }
 
-function encode(object) {
-	const ignoreMap = {
-		x: 1, 
-		maxIndex: 1
-	};
+const ignoreMap = {
+	x: 1, 
+	maxIndex: 1
+};
 
+function encode(object) {
 	return JSON.stringify(object, (key, value) => {
 		if (key in ignoreMap) return;
 
@@ -776,6 +773,46 @@ function setLayers(l) {
 	epochTimeTaken = 0;
 }
 
+function getLossCurve(x) {
+	for (const layer of layers) {
+		!layer.startParams && (layer.startParams = {});
+		layer.oldParams = {};
+
+		for (const key in layer) {
+			const params = layer[key];
+			if (key in ignoreMap || !params?.BYTES_PER_ELEMENT) continue;
+
+			layer.oldParams[key] = params;
+
+			const start = layer.startParams[key] || (layer.startParams[key] = createParams(params.length));
+
+			const newParams = new Float32Array(params.length);
+			for (let j = 0; j < params.length; j++) {
+				newParams[j] = start[j] * x + (1 - x) * params[j];
+			}
+
+			layer[key] = newParams;
+		}
+	}
+
+	const n = 100;
+	const preds = forward(datasets.val[0].slice(0, n * inputLength));
+	const loss = crossEntropy(datasets.val[1].slice(0, n * outputLength), preds, outputLength);
+
+	for (const layer of layers) {
+		for (const key in layer.oldParams) {
+			layer[key] = layer.oldParams[key];
+		}
+		delete layer.oldParams;
+	}
+
+	postMessage({
+		id: 'lossCurve',
+		modelId, 
+		value: loss
+	});
+}
+
 // loading dataset
 
 const xhr = new XMLHttpRequest();
@@ -815,13 +852,16 @@ function newModel() {
 	]);
 }
 
+let trainCount = 0;
+
 onmessage = function (event) {
 	const msg = event.data;
 
 	switch (msg.id) {
 		case 'createDatasets':
 			datasets = createDatasets(msg.dataSplit, msg.trainSplit);
-			if (i > datasets.train[0].length / inputLength) i = 0;
+			trainCount = datasets.train[0].length / inputLength;
+			if (i >= trainCount) i = 0;
 			break;
 
 		case 'setLearningRate':
@@ -845,6 +885,8 @@ onmessage = function (event) {
 		case 'checkpointData':
 			const json = encode({
 				data: msg.data, 
+				epoch: e, 
+				batchIndex: i, 
 				layers
 			});
 			postMessage({
@@ -854,29 +896,43 @@ onmessage = function (event) {
 			break;
 
 		case 'checkpoint': 
-			try {
-				const json = decode(msg.json);
-				setLayers(json.layers);
-				modelId = Math.random().toString(32).slice(2);
-
-				postMessage({
-					id: 'checkpointData', 
-					data: json.data, 
-					modelId
-				});
-			} catch (error) {
-				postMessage({
-					id: 'checkpointError', 
-					error: error.message
-				});
-			}
+			importCheckpoint(msg.json);
 			break;
 
 		case 'train':
 			train();
 			break;
 
+		case 'lossCurve':
+			getLossCurve(msg.x);
+			break;
+
 		default:
 			console.log(`Unknown msg id from parent: ${msg.id}`);
+	}
+}
+
+function importCheckpoint(json) {
+	try {
+		json = decode(json);
+		setLayers(json.layers);
+		e = json.epoch;
+		i = json.batchIndex;
+		if (i >= trainCount) i = 0;
+
+		modelId = Math.random().toString(32).slice(2);
+
+		postMessage({
+			id: 'checkpointData', 
+			data: json.data, 
+			epoch: e, 
+			epochPercent: i / trainCount, 
+			modelId
+		});
+	} catch (error) {
+		postMessage({
+			id: 'checkpointError', 
+			error: error.message
+		});
 	}
 }

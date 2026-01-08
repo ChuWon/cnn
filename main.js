@@ -12,27 +12,44 @@ function createModel() {
 		id: 'createModel', 
 		modelId
 	});
+
+	for (const key in defaultSettings) {
+		setSetting(key, defaultSettings[key]);
+	}
 }
 
 function reset(id) {
 	modelId = id || Math.random().toString(32).slice(2);
 	epoch = 0;
+	epochPercent = 0;
 	lastCheckpointT = 0;
+	setEpochProgress();
+
 	epoching = false;
+	lossCurving = false;
+
 	resetGraphs();
 }
+
+const lossCurveLength = 69;
+const lossCurveRange = [-8.555, 4.666];
 
 let epoch = 0;
 let epochPercent = 0;
 let epoching = false;
 let lastCheckpointT = 0;
 
-function onTrain(msg) {
-	epoching = false;
+let lossCurving = false;
+
+function setEpochProgress() {
+	progress = Math.min(1, (epoch + epochPercent) / epochs);
+	progressText = `training epoch ${epoch}/${epochs}${epochPercent ? ` (${(epochPercent * 100).toFixed(2)}%)` : ''}`;
+}
+
+function setEpoch(msg) {
 	epoch = msg.epoch;
-	epochPercent = (msg.epochPercent * 100).toFixed(2);
-	progress = Math.min(1, (msg.epoch + msg.epochPercent) / epochs);
-	progressText = `training epoch ${epoch}/${epochs}${msg.epochPercent ? ` (${epochPercent}%)` : ''}`;
+	epochPercent = msg.epochPercent;
+	setEpochProgress();
 }
 
 worker.onmessage = function (event) {
@@ -50,6 +67,11 @@ worker.onmessage = function (event) {
 			createDatasets();
 			setLearningRate();
 			setBatchSize();
+
+			fetch('cnn-e10-11.19.666')
+				.then(res => res.text())
+				.then(importCheckpoint)
+				.catch(error => console.log(`checkpoint load error: ${error.message}`))
 			break;
 
 		case 'failed':
@@ -57,8 +79,9 @@ worker.onmessage = function (event) {
 			break;
 
 		case 'epochBatch':
+			epoching = false;
 			if (msg.modelId !== modelId) return;
-			onTrain(msg);
+			setEpoch(msg);
 			addGraph('batchTime', msg.batchTimeTaken);
 			setGraph('epochTime', msg.epochTimeTaken);
 
@@ -72,8 +95,9 @@ worker.onmessage = function (event) {
 			break;
 
 		case 'epoch':
+			epoching = false;
 			if (msg.modelId !== modelId) return;
-			onTrain(msg);
+			setEpoch(msg);
 			addGraph('epochTime', msg.epochTimeTaken);
 			addGraph('trainLoss', msg.trainLoss);
 			addGraph('trainAccuracy', msg.trainAccuracy);
@@ -97,15 +121,23 @@ worker.onmessage = function (event) {
 			alert(`prediction: ${maxIndex}`);
 		}	break;
 
+		case 'lossCurve':
+			lossCurving = false;
+			if (msg.modelId !== modelId) break;
+			addGraph('lossCurve', msg.value);
+			break;
+
 		case 'checkpoint':
 			const a = document.createElement('a');
 			a.href = URL.createObjectURL(new Blob([msg.json], { type: 'text/plain' }));
-			a.download = `cnn-e${epoch}-${epochPercent}%.666`;
+			a.download = `cnn-e${epoch}-${(epochPercent * 100).toFixed(2)}.666`;
 			a.click();
 			break;
 
 		case 'checkpointData':
 			reset(msg.modelId);
+			setEpoch(msg);
+			lastCheckpointT = epoch + epochPercent;
 
 			const data = msg.data;
 
@@ -115,6 +147,8 @@ worker.onmessage = function (event) {
 					setSetting(key, v);
 				}
 			}
+
+			setSetting('trainingEnabled', false);
 
 			for (const key in data.graphs) {
 				if (key in graphs) {
@@ -149,12 +183,9 @@ function setBatchSize() {
 	});
 }
 
+let datasetNeedsUpdate = false;
 function createDatasets() {
-	loaded && worker.postMessage({
-		id: 'createDatasets', 
-		trainSplit: settings.trainSplit, 
-		dataSplit: settings.dataSplit
-	});
+	datasetNeedsUpdate = true;
 }
 
 function saveCheckpoint() {
@@ -376,13 +407,12 @@ window.onresize = function () {
 }
 resize();
 
-const Void = () => {}
-
 const settingsEl = document.querySelector('.settings');
 
 const settings = {
-	trainingEnabled: true, 
+	trainingEnabled: false, 
 	endlessTraining: false, 
+	lossLandscape: false, 
 	autoSaveCheckpoint: false, 
 	learningRate: [0.01, 0.01, 1, 0.01], 
 	checkpointSaveInterval: [0.1, 0.01, 1, 0.01], 
@@ -442,10 +472,12 @@ for (const key in settings) {
 	}
 }
 
+const defaultSettings = Object.assign({}, settings);
+
 function setSetting(key, value) {
 	settings[key] = value;
 	const el = document.getElementById(key);
-	el.value = value;
+	el[el.checked !== undefined ? 'checked' : 'value'] = value;
 	el.onchange();
 }
 
@@ -461,10 +493,13 @@ function fromHtml(html) {
 }
 
 const btnsEl = fromHtml(`<div class="row" style="margin-top: 3px;">
+	<div class="btn reset-btn">reset</div>
 	<div class="btn export-btn">export</div>
 	<div class="btn import-btn">import</div>
 </div>`);
 settingsEl.appendChild(btnsEl);
+
+btnsEl.querySelector('.reset-btn').onclick = createModel;
 
 btnsEl.querySelector('.export-btn').onclick = saveCheckpoint;
 
@@ -475,16 +510,37 @@ btnsEl.querySelector('.import-btn').onclick = function () {
 
 	el.oninput = function (event) {
 		const file = this.files[0];
-		if (!file) return;
 
-		const reader = new FileReader();
-		reader.onload = function () {
-			importCheckpoint(this.result);
-		}
-		reader.readAsText(file);
+		file && importFile(file);
 	}
 
 	el.click();
+}
+
+let dragT = 0;
+
+document.ondragover = event => event.preventDefault();
+document.ondrop = function (event) {
+	event.preventDefault();
+	const file = event.dataTransfer.files[0];
+	file && importFile(file);
+	dragging = false;
+}
+
+let dragging = false;
+document.ondragenter = function () {
+	dragging = true;
+}
+document.ondragleave = function () {
+	dragging = false;
+}
+
+function importFile(file) {
+	const reader = new FileReader();
+	reader.onload = function () {
+		importCheckpoint(this.result);
+	}
+	reader.readAsText(file);
 }
 
 // rendering
@@ -503,7 +559,7 @@ let graphs;
 function initGraphs() {
 	graphs = {};
 
-	const list = ['trainLoss', 'trainAccuracy', 'valLoss', 'valAccuracy', 'batchTime', 'epochTime'];
+	const list = ['trainLoss', 'trainAccuracy', 'valLoss', 'valAccuracy', 'batchTime', 'epochTime', 'lossCurve'];
 
 	for (let i = 0; i < list.length; i++) {
 		const key = list[i];
@@ -557,6 +613,34 @@ function drawHud(ctx) {
 
 	ctx.save();
 	ctx.scale2(scale);
+
+	if (dragT > 0) {
+		ctx.save();
+		ctx.translate(W / 2, H / 2);
+		ctx.scale2(dragT);
+		ctx.globalAlpha = dragT;
+
+		ctx.setLineDash([12, 15]);
+		ctx.lineDashOffset = now / 10 % 1000;
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = '#888';
+		ctx.lineCap = ctx.lineJoin = 'round';
+		ctx.beginPath();
+		ctx.roundRect(-250, -100, 500, 200, 20);
+		ctx.fillStyle = 'hsla(0, 0%, 100%, 0.02)';
+		ctx.fill();
+		ctx.stroke();
+
+		ctx.fillStyle = '#fff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = `normal 17px monospace`;
+		ctx.fillText('drop to import XD', 0, (1 - dragT) * -40);
+
+		ctx.restore();
+	}
+
+	// 
 
 	ctx.save();
 	ctx.translate(12, H - 12 - 16);
@@ -668,11 +752,37 @@ function update() {
 	settingsEl.style.transform = `translateY(${(1 - showT) * -200}%)`;
 	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
 
-	if (loaded && isTraining() && !epoching) {
-		worker.postMessage({
-			id: 'train'
-		});
-		epoching = true;
+	dragT = lerp(dragT, dragging ? 1 : 0, getLerpFactor(0.2));
+
+	graphs.lossCurve.visible = settings.lossLandscape;
+
+	if (loaded) {
+		// prevent multiple msgs in chk import XD
+		if (datasetNeedsUpdate) {
+			worker.postMessage({
+				id: 'createDatasets', 
+				trainSplit: settings.trainSplit, 
+				dataSplit: settings.dataSplit
+			});
+			datasetNeedsUpdate = false;
+		}
+
+		if (isTraining()) {
+			if (!epoching) {
+				epoching = true;
+				worker.postMessage({
+					id: 'train'
+				});
+			}
+		} else if (settings.lossLandscape) {
+			if (!lossCurving && graphs.lossCurve.points.length <= lossCurveLength) {
+				lossCurving = true;
+				worker.postMessage({
+					id: 'lossCurve', 
+					x: toRange(lossCurveRange, graphs.lossCurve.points.length / lossCurveLength)
+				});
+			}
+		}
 	}
 }
 
@@ -683,6 +793,10 @@ function animate() {
 }
 
 animate();
+
+function toRange([min, max], f) {
+	return min + (max - min) * f;
+}
 
 function lerpAngle(a, b, t) {
 	let da = (b - a) % PI2;
