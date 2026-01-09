@@ -27,6 +27,10 @@ function reset(id) {
 
 	epoching = false;
 	lossCurving = false;
+	lossLandscaping = false;
+
+	lossLandscapePoints.length = 0;
+	disposeLossLandscape();
 
 	resetGraphs();
 }
@@ -34,12 +38,17 @@ function reset(id) {
 const lossCurveLength = 69;
 const lossCurveRange = [-8.555, 4.666];
 
+const lossLandscapeLength = 18;
+const lossLandscapeSize = lossLandscapeLength * lossLandscapeLength;
+const lossLandscapeRange = [-6.9, 6.9];
+
 let epoch = 0;
 let epochPercent = 0;
-let epoching = false;
 let lastCheckpointT = 0;
 
+let epoching = false;
 let lossCurving = false;
+let lossLandscaping = false;
 
 function setEpochProgress() {
 	progress = Math.min(1, (epoch + epochPercent) / epochs);
@@ -125,6 +134,13 @@ worker.onmessage = function (event) {
 			lossCurving = false;
 			if (msg.modelId !== modelId) break;
 			addGraph('lossCurve', msg.value);
+			break;
+
+		case 'lossLandscape': 
+			lossLandscaping = false;
+			if (msg.modelId !== modelId) break;
+			lossLandscapePoints.push(msg.value);
+			updateLossLandscape();
 			break;
 
 		case 'checkpoint':
@@ -236,6 +252,94 @@ function predict(image) {
 
 function isTraining() {
 	return settings.trainingEnabled && (epoch < epochs || settings.endlessTraining);
+}
+
+let lossLandscape;
+const lossLandscapePoints = [];
+
+function updateLossLandscape() {
+	disposeLossLandscape();
+
+	const n = lossLandscapePoints.length;
+	if (n <= 0) return;
+
+	let min = Infinity;
+	let max = -Infinity;
+	for (const loss of lossLandscapePoints) {
+		min = Math.min(loss, min);
+		max = Math.max(loss, max);
+	}
+
+	const points = [];
+	const pointData = new Float32Array(n * 3);
+
+	for (let i = 0; i < lossLandscapePoints.length; i++) {
+		const f = (lossLandscapePoints[i] - min) / (max - min);
+		const p = [
+			((i % lossLandscapeLength) / (lossLandscapeLength - 1) * 2 - 1) * 150, 
+			-50 + f * 60, 
+			(Math.floor(i / lossLandscapeLength) / (lossLandscapeLength - 2) * 2 - 1) * 150
+		];
+		p.f = f;
+		pointData.set(p, i * 3);
+		points.push(p);
+	}
+
+	const posData = [];
+	const intensityData = [];
+	const lineData = [];
+
+	const h = Math.floor(n / lossLandscapeLength) - 1;
+	
+	for (let i = 0, l = Math.min(points.length, lossLandscapeLength) - 1; i < l; i++) {
+		lineData.push(...points[i], ...points[i + 1]);
+	}
+
+	for (let y = 0; y <= h; y++) {
+		const w = (y < h ? lossLandscapeLength : n % lossLandscapeLength) - 2;
+		for (let x = 0; x <= w; x++) {
+			const a = points[y * lossLandscapeLength + x];
+			const b = points[y * lossLandscapeLength + x + 1];
+			const c = points[(y + 1) * lossLandscapeLength + x];
+			const d = points[(y + 1) * lossLandscapeLength + x + 1];
+
+			y > 0 && a && b && lineData.push(...a, ...b);
+			a && c && lineData.push(...a, ...c);
+			x === w && b && d && lineData.push(...b, ...d);
+			y >= h - 1 && c && d && lineData.push(...c, ...d);
+
+			if (a && b && c && d) {
+				posData.push(
+					...b, ...a, ...c,
+					...b, ...c, ...d
+				);
+				intensityData.push(
+					b.f, a.f, c.f, 
+					b.f, c.f, d.f
+				);
+			}
+		}
+	}
+
+	lossLandscape = {
+		points, 
+		pointBuffer: createBuffer(pointData), 
+		posBuffer: createBuffer(new Float32Array(posData)), 
+		intensityBuffer: createBuffer(new Float32Array(intensityData)), 
+		vertexCount: posData.length / 3, 
+		lineBuffer: createBuffer(new Float32Array(lineData)), 
+		lineCount: lineData.length / 3
+	};
+}
+
+function disposeLossLandscape() {
+	if (lossLandscape) {
+		gl.deleteBuffer(lossLandscape.pointBuffer);
+		gl.deleteBuffer(lossLandscape.posBuffer);
+		gl.deleteBuffer(lossLandscape.intensityBuffer);
+		gl.deleteBuffer(lossLandscape.lineBuffer);
+		lossLandscape = null;
+	}
 }
 
 const epochs = 5;
@@ -373,6 +477,135 @@ const options = {
 };
 const gl = canvas.getContext('webgl', options) || canvas.getContext('experimental-webgl', options);
 
+if (!gl) {
+	alert(`webgl not supported. get better device LOL XD`);
+	throw new Error('webgl not supported');
+}
+
+const ext = gl.getExtension('ANGLE_instanced_arrays');
+if (!ext) {
+	alert(`ext not supported RIP XD LOL no nn 4u XD`);
+	throw new Error('ext not supported');
+}
+
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.CULL_FACE);
+gl.cullFace(gl.BACK);
+
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+const bgProgram = createProgram(`
+
+precision mediump float;
+
+attribute vec3 position;
+
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+
+varying vec3 vPos;
+
+void main() {
+	gl_Position = projectionMatrix * viewMatrix * vec4(position * 5000.0, 1.0);
+	gl_Position.z = 0.0;
+	vPos = position;
+}
+
+`, `
+
+precision mediump float;
+
+uniform sampler2D map;
+
+varying vec3 vPos;
+
+void main() {
+	vec3 p = vPos * 2.0;
+	vec2 uv = abs(p.z) > 0.999 ? p.xy : (abs(p.x) > 0.999 ? p.zy : p.xz);
+	gl_FragColor = texture2D(map, uv * 20.0);
+}
+
+`);
+
+const planeProgram = createProgram(`
+
+precision mediump float;
+
+attribute vec3 position;
+attribute float intensity;
+
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+
+varying float vIntensity;
+
+void main() {
+	gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+	vIntensity = intensity;
+}
+
+`, `
+
+precision mediump float;
+
+varying float vIntensity;
+
+void main() {
+	gl_FragColor = vec4(mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity), 1.0);
+}
+
+`);
+
+const planeLineProgram = createProgram(`
+
+precision mediump float;
+
+attribute vec3 position;
+
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+
+void main() {
+	gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+	gl_Position.z -= 0.02;
+}
+
+`, `
+
+precision mediump float;
+	
+void main() {
+	gl_FragColor = vec4(0.5);
+}
+
+`);
+
+const mesh = {
+	indices: [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
+	vertices: [0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
+	normals: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1]
+};
+
+const PI2 = Math.PI * 2;
+
+const map = gl.createTexture();
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, map);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, Grid(32));
+gl.generateMipmap(gl.TEXTURE_2D);
+
+const posBuffer = createBuffer(new Float32Array(mesh.vertices));
+const normalBuffer = createBuffer(new Float32Array(mesh.normals));
+
+const indexBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mesh.indices), gl.STATIC_DRAW);
+
 const hudCanvas = document.getElementById('hudCanvas');
 const hudCtx = hudCanvas.getContext('2d');
 
@@ -404,6 +637,7 @@ function resize() {
 
 window.onresize = function () {
 	resize();
+	render();
 }
 resize();
 
@@ -418,7 +652,8 @@ const settings = {
 	checkpointSaveInterval: [0.1, 0.01, 1, 0.01], 
 	batchSize: [1, 1, 666, 1], 
 	trainSplit: [0.8, 0.01, 0.99, 0.01], 
-	dataSplit: [1, 0.01, 1, 0.01]
+	dataSplit: [1, 0.01, 1, 0.01], 
+	orbitSpeed: [1, 0, 50, 1]
 };
 
 const settingOnChange = {
@@ -623,33 +858,23 @@ function drawHud(ctx) {
 	ctx.save();
 	ctx.scale2(scale);
 
-	if (dragT > 0) {
-		ctx.save();
-		ctx.translate(W / 2, H / 2);
-		ctx.scale2(dragT);
-		ctx.globalAlpha = dragT;
-
-		ctx.setLineDash([12, 15]);
-		ctx.lineDashOffset = now / 10 % 1000;
-		ctx.lineWidth = 2;
-		ctx.strokeStyle = '#888';
-		ctx.lineCap = ctx.lineJoin = 'round';
-		ctx.beginPath();
-		ctx.roundRect(-250, -100, 500, 200, 20);
-		ctx.fillStyle = 'hsla(0, 0%, 100%, 0.02)';
-		ctx.fill();
-		ctx.stroke();
-
-		ctx.fillStyle = '#fff';
+	if (showingLossLandscape) {
+		ctx.fillStyle = colors.activation;
 		ctx.textAlign = 'center';
-		ctx.textBaseline = 'middle';
-		ctx.font = `normal 17px monospace`;
-		ctx.fillText('drop to import XD', 0, (1 - dragT) * -40);
+		ctx.textBaseline = 'bottom';
 
-		ctx.restore();
+		for (let i = 0; i < lossLandscape.points.length; i++) {
+			if (depth > 200 && ((i % lossLandscapeLength) + Math.floor(i / lossLandscapeLength) % 2) % 2 === 0) continue;
+
+			const loss = lossLandscapePoints[i];
+			const p = project2(...lossLandscape.points[i]);
+			if (p) {
+				ctx.fillText(loss.toFixed(2), p[0] * W, p[1] * H);
+			}
+		}
 	}
 
-	// 
+	// graph
 
 	ctx.save();
 	ctx.translate(12, H - 12 - 16);
@@ -699,7 +924,7 @@ function drawHud(ctx) {
 		if (pointerX > a.x && pointerX < b.x && pointerY > a.y && pointerY < b.y) {
 			const f = (pointerX - a.x) / (b.x - a.x);
 			const x = f * graphWidth;
-			
+
 			if (graph.points.length > 0) {
 				const i = Math.round(f * (graph.points.length - 1));
 				n = graph.points[i];
@@ -735,7 +960,7 @@ function drawHud(ctx) {
 
 	ctx.restore();
 
-	//
+	// progress
 
 	ctx.save();
 	ctx.translate(-400 * (1 - showT), H - 130);
@@ -764,6 +989,34 @@ function drawHud(ctx) {
 
 	ctx.restore();
 
+	// drag
+
+	if (dragT > 0) {
+		ctx.save();
+		ctx.translate(W / 2, H / 2);
+		ctx.scale2(dragT);
+		ctx.globalAlpha = dragT;
+
+		ctx.setLineDash([12, 15]);
+		ctx.lineDashOffset = now / 10 % 1000;
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = '#888';
+		ctx.lineCap = ctx.lineJoin = 'round';
+		ctx.beginPath();
+		ctx.roundRect(-250, -100, 500, 200, 20);
+		ctx.fillStyle = 'hsla(0, 0%, 100%, 0.02)';
+		ctx.fill();
+		ctx.stroke();
+
+		ctx.fillStyle = '#fff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = `normal 17px monospace`;
+		ctx.fillText('drop to import XD', 0, (1 - dragT) * -40);
+
+		ctx.restore();
+	}
+
 	ctx.restore();
 }
 
@@ -774,12 +1027,59 @@ document.onmousemove = function (event) {
 	pointerY = event.clientY / window.innerHeight * hudCanvas.height;
 }
 
+let nrx = 0.1;
+let nry = -7;
+let nDepth = 100;
+
+let rx = 0.6;
+let ry = -0.5;
+let depth = 180;
+
+const minDepth = 2;
+const maxDepth = 300;
+
+canvas.onwheel = function (event) {
+	nDepth *= (event.deltaY > 0 ? 1.1 : 0.9);
+	nDepth = Math.max(minDepth, Math.min(nDepth, maxDepth));
+}
+
+canvas.oncontextmenu = () => false;
+
+let picked;
+
+let lastPoint;
+canvas.onmousedown = function (event) {
+	if (event.button === 0) {
+		lastPoint = [event.clientX, event.clientY];
+	}
+}
+window.onmousemove = function (event) {
+	if (lastPoint) {
+		const p = [event.clientX, event.clientY];
+		const dx = p[0] - lastPoint[0];
+		const dy = p[1] - lastPoint[1];
+		nrx += dy * 0.01;
+		nry -= dx * 0.01;
+		nrx = Math.max(-Math.PI / 2, Math.min(nrx, Math.PI / 2));
+		lastPoint = p;
+	}
+}
+window.onmouseup = function (event) {
+	if (event.button === 0) {
+		lastPoint = null;
+	}
+}
+
+let showT = 0;
+
+let projectionMatrix, viewMatrix;
+
+let showingLossLandscape = false;
+
 let now = 0;
 let lastTime = Date.now();
 let dt = 0;
 let dts = 0;
-
-let showT = 0;
 
 function update() {
 	now = Date.now();
@@ -787,7 +1087,19 @@ function update() {
 	dts = dt / 1000;
 	lastTime = now;
 
-	const lf = getLerpFactor(0.1);
+	if (!lastPoint) {
+		nry += 0.015 * settings.orbitSpeed * dts;
+	}
+
+	let lf = getLerpFactor(0.05);
+	rx = lerpAngle(rx, nrx, lf);
+	ry = lerpAngle(ry, nry, lf);
+	depth = lerp(depth, nDepth, lf);
+
+	showingLossLandscape = settings.lossLandscape && lossLandscape && !isTraining();
+	graphs.lossCurve.visible = showingLossLandscape;
+
+	lf = getLerpFactor(0.1);
 	showT = lerp(showT, 1, lf);
 	headerEl.style.transform = `translateX(${(1 - showT) * 200}%)`;
 	settingsEl.style.transform = `translateY(${(1 - showT) * -200}%)`;
@@ -823,17 +1135,206 @@ function update() {
 					x: toRange(lossCurveRange, graphs.lossCurve.points.length / lossCurveLength)
 				});
 			}
+
+			if (!lossLandscaping && lossLandscapePoints.length < lossLandscapeSize) {
+				lossLandscaping = true;
+				const i = lossLandscapePoints.length;
+				worker.postMessage({
+					id: 'lossLandscape', 
+					x: toRange(lossLandscapeRange, (i % lossLandscapeLength) / lossLandscapeLength), 
+					y: toRange(lossLandscapeRange, Math.floor(i / lossLandscapeLength) / lossLandscapeLength)
+				});
+			}
 		}
 	}
 }
 
+function render() {
+	drawHud(hudCtx);
+
+	const cosX = Math.cos(rx);
+	const sinX = Math.sin(rx);
+	const cosY = Math.cos(ry);
+	const sinY = Math.sin(ry);
+
+	viewMatrix = [
+		cosY, sinY * -sinX, sinY * cosX, 0, 
+		0, cosX, sinX, 0, 
+		-sinY, cosY * -sinX, cosY * cosX, 0, 
+		0, 0, -depth, 1
+	];
+
+	const near = 0.1;
+	const far = 1000;
+	const fov = 60;
+	const f = 1 / Math.tan(fov * Math.PI / 360);
+	const nf = 1 / (near - far);
+	const aspect = canvas.width / canvas.height;
+
+	projectionMatrix = [
+		f / aspect, 0, 0, 0, 
+		0, f, 0, 0, 
+		0, 0, (near + far) * nf, -1, 
+		0, 0, 2 * far * near * nf, 1
+	];
+
+	gl.viewport(0, 0, canvas.width, canvas.height);
+
+	gl.clearColor(0, 0, 0, 1);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+	renderBg();
+
+	showingLossLandscape && renderLossLandscape();
+}
+
+function renderBg() {
+	gl.useProgram(bgProgram);
+	gl.activeTexture(gl.TEXTURE0);
+	gl.bindTexture(gl.TEXTURE_2D, map);
+	gl.uniform1i(bgProgram.uniforms.map, 0);
+
+	gl.uniformMatrix4fv(bgProgram.uniforms.projectionMatrix, false, projectionMatrix);
+	gl.uniformMatrix4fv(bgProgram.uniforms.viewMatrix, false, viewMatrix);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+	gl.enableVertexAttribArray(bgProgram.attributes.position);
+	gl.vertexAttribPointer(bgProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
+
+	gl.cullFace(gl.FRONT);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+	gl.drawElements(gl.TRIANGLES, mesh.indices.length, gl.UNSIGNED_SHORT, 0);			
+	gl.cullFace(gl.BACK);
+
+	gl.disableVertexAttribArray(bgProgram.attributes.position);
+
+	gl.clear(gl.DEPTH_BUFFER_BIT);
+}
+
+function renderLossLandscape() {
+	if (lossLandscape.vertexCount > 0) {
+		gl.useProgram(planeProgram);
+
+		gl.uniformMatrix4fv(planeProgram.uniforms.projectionMatrix, false, projectionMatrix);
+		gl.uniformMatrix4fv(planeProgram.uniforms.viewMatrix, false, viewMatrix);
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.posBuffer);
+		gl.enableVertexAttribArray(planeProgram.attributes.position);
+		gl.vertexAttribPointer(planeProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.intensityBuffer);
+		gl.enableVertexAttribArray(planeProgram.attributes.intensity);
+		gl.vertexAttribPointer(planeProgram.attributes.intensity, 1, gl.FLOAT, false, 0, 0);
+
+		gl.disable(gl.CULL_FACE);
+		gl.drawArrays(gl.TRIANGLES, 0, lossLandscape.vertexCount);
+		gl.enable(gl.CULL_FACE);
+
+		gl.disableVertexAttribArray(planeProgram.attributes.position);
+		gl.disableVertexAttribArray(planeProgram.attributes.intensity);
+	}
+
+	// 
+
+	gl.useProgram(planeLineProgram);
+
+	gl.uniformMatrix4fv(planeLineProgram.uniforms.projectionMatrix, false, projectionMatrix);
+	gl.uniformMatrix4fv(planeLineProgram.uniforms.viewMatrix, false, viewMatrix);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.lineBuffer);
+	gl.enableVertexAttribArray(planeLineProgram.attributes.position);
+	gl.vertexAttribPointer(planeLineProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
+
+	gl.drawArrays(gl.LINES, 0, lossLandscape.lineCount);
+
+	gl.disableVertexAttribArray(planeLineProgram.attributes.position);
+}
+
 function animate() {
 	update();
-	drawHud(hudCtx);
+	render();
 	window.requestAnimationFrame(animate);
 }
 
 animate();
+
+function createProgram(vert, frag) {
+	const vShader = createShader(vert, true);
+	const fShader = createShader(frag, false);
+
+	const program = gl.createProgram();
+	gl.attachShader(program, vShader);
+	gl.attachShader(program, fShader);
+	gl.linkProgram(program);
+
+	gl.deleteShader(vShader);
+	gl.deleteShader(fShader);
+
+	if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+		throw new Error(`failed to link program: ${gl.getProgramInfoLog(program)}`);
+	}
+
+	const attributeCount = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
+	program.attributes = {};
+	for (let i = 0; i < attributeCount; i++) {
+		const info = gl.getActiveAttrib(program, i);
+		program.attributes[info.name] = gl.getAttribLocation(program, info.name);
+	}
+
+	const uniformCount = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+	program.uniforms = {};
+	for (let i = 0; i < uniformCount; i++) {
+		const info = gl.getActiveUniform(program, i);
+		program.uniforms[info.name] = gl.getUniformLocation(program, info.name);
+	}
+
+	return program;
+}
+
+function createShader(src, isVertex) {
+	const shader = gl.createShader(isVertex ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER);
+	gl.shaderSource(shader, src);
+	gl.compileShader(shader);
+
+	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+		throw new Error(`failed to compile ${isVertex ? 'vertex' : 'fragment'} shader! ${gl.getShaderInfoLog(shader)}`);
+	}
+
+	return shader;
+}
+
+function createBuffer(data, dynamic) {
+	const buffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+	gl.bufferData(gl.ARRAY_BUFFER, data, dynamic ? gl.DYNAMIC_DRAW :  gl.STATIC_DRAW);
+	return buffer;
+}
+
+function project(x, y, z) {
+	const p = transformVector(transformVector([x, y, z, 1], viewMatrix), projectionMatrix);
+	x = p[0] / p[3] * 0.5 + 0.5;
+	y = 0.5 - p[1] / p[3] * 0.5;
+	z = p[2] / p[3] * 0.5 + 0.5;
+	return [x, y, z];
+}
+
+function project2(x, y, z) {
+	const p = project(x, y, z);
+	if (inView(...p)) return p;
+}
+
+function transformVector(p, matrix) {
+	return [
+		p[0] * matrix[0] + p[1] * matrix[4] + p[2] * matrix[8] + p[3] * matrix[12], 
+		p[0] * matrix[1] + p[1] * matrix[5] + p[2] * matrix[9] + p[3] * matrix[13], 
+		p[0] * matrix[2] + p[1] * matrix[6] + p[2] * matrix[10] + p[3] * matrix[14], 
+		p[0] * matrix[3] + p[1] * matrix[7] + p[2] * matrix[11] + p[3] * matrix[15]
+	];
+}
+
+function inView(x, y, z) {
+	return x > 0 && x < 1 && y > 0 && y < 1 && z > 0 && z < 1;
+}
 
 function toRange([min, max], f) {
 	return min + (max - min) * f;

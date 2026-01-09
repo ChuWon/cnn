@@ -774,8 +774,48 @@ function setLayers(l) {
 }
 
 function getLossCurve(x) {
-	for (const layer of layers) {
+	const loss = getAlteredLoss((layer, key, params) => {
 		!layer.startParams && (layer.startParams = {});
+		const start = layer.startParams[key] || (layer.startParams[key] = createParams(params.length));
+
+		const newParams = new Float32Array(params.length);
+		for (let j = 0; j < params.length; j++) {
+			newParams[j] = start[j] * x + (1 - x) * params[j];
+		}
+		return newParams;
+	});
+
+	postMessage({
+		id: 'lossCurve',
+		modelId, 
+		value: loss
+	});
+}
+
+function getLossLandscape(x, y) {
+	const loss = getAlteredLoss((layer, key, params) => {
+		!layer.dirX && (layer.dirX = {});
+		!layer.dirY && (layer.dirY = {});
+
+		const dx = layer.dirX[key] || (layer.dirX[key] = createParams(params.length));
+		const dy = layer.dirY[key] || (layer.dirY[key] = createParams(params.length));
+
+		const newParams = new Float32Array(params.length);
+		for (let i = 0; i < params.length; i++) {
+			newParams[i] = params[i] + dx[i] * x + dy[i] * y;
+		}
+		return newParams;
+	});
+
+	postMessage({
+		id: 'lossLandscape',
+		modelId, 
+		value: loss
+	});
+}
+
+function getAlteredLoss(getParams) {
+	for (const layer of layers) {
 		layer.oldParams = {};
 
 		for (const key in layer) {
@@ -783,19 +823,11 @@ function getLossCurve(x) {
 			if (key in ignoreMap || !params?.BYTES_PER_ELEMENT) continue;
 
 			layer.oldParams[key] = params;
-
-			const start = layer.startParams[key] || (layer.startParams[key] = createParams(params.length));
-
-			const newParams = new Float32Array(params.length);
-			for (let j = 0; j < params.length; j++) {
-				newParams[j] = start[j] * x + (1 - x) * params[j];
-			}
-
-			layer[key] = newParams;
+			layer[key] = getParams(layer, key, params);
 		}
 	}
 
-	const n = 100;
+	const n = 50;
 	const preds = forward(datasets.val[0].slice(0, n * inputLength));
 	const loss = crossEntropy(datasets.val[1].slice(0, n * outputLength), preds, outputLength);
 
@@ -806,11 +838,7 @@ function getLossCurve(x) {
 		delete layer.oldParams;
 	}
 
-	postMessage({
-		id: 'lossCurve',
-		modelId, 
-		value: loss
-	});
+	return loss;
 }
 
 // loading dataset
@@ -905,6 +933,10 @@ onmessage = function (event) {
 
 		case 'lossCurve':
 			getLossCurve(msg.x);
+			break;
+
+		case 'lossLandscape': 
+			getLossLandscape(msg.x, msg.y);
 			break;
 
 		default:
