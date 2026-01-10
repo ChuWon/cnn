@@ -3,13 +3,14 @@
 		"settings": {
 			"trainingEnabled": false,
 			"endlessTraining": true,
-			"lossLandscape": true,
+			"lossLandscape": false,
 			"autoSaveCheckpoint": true,
 			"learningRate": 0.01,
 			"checkpointSaveInterval": 0.1,
 			"batchSize": 1,
 			"trainSplit": 0.8,
-			"dataSplit": 1
+			"dataSplit": 1,
+			"orbitSpeed": 1
 		},
 		"graphs": {
 			"trainLoss": {
@@ -34,7 +35,7 @@
 			},
 			"epochTime": {
 				"cls": "Float32Array",
-				"data": "0EwCRSaQCkW3kg5FlisNRfc9DUX/Tg5FoqoFRdEiA0UFDQNFVesCRfXaakM="
+				"data": "0EwCRSaQCkW3kg5FlisNRfc9DUX/Tg5FoqoFRdEiA0UFDQNFVesCRQ=="
 			},
 			"lossCurve": {
 				"cls": "Float32Array",

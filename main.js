@@ -236,6 +236,12 @@ worker.onmessage = function (event) {
 			initObjects();
 			break;
 
+		case 'params':
+			for (const i in msg.layers) {
+				Object.assign(layers[i], msg.layers[i]);
+			}
+			break;
+
 		default:
 			console.log(`Unknown msg id from worker: ${msg.id}`);
 	}
@@ -465,6 +471,7 @@ function SketchUI() {
 		draw();
 
 		canAutoPredict = true;
+		predictT = 1;
 		userInput = null;
 	}
 
@@ -738,8 +745,6 @@ function getBoxLines() {
 		list.push(...a, -0.5);
 	}
 
-	console.log(list)
-
 	return list;
 }
 
@@ -814,6 +819,7 @@ function initObjects() {
 
 	for (let i = 0; i < layers.length; i++) {
 		const layer = layers[i];
+		layer.z = pz;
 		layer.offset = boxes.length;
 
 		switch (layer.type) {
@@ -1194,6 +1200,40 @@ function drawHud(ctx) {
 				ctx.restore();
 			}
 		}
+
+		if (picked && depth > 70) {
+			ctx.save();
+			ctx.beginPath();
+			for (const p of picked.points) {
+				const [x, y, z] = project(...p);
+				ctx.lineTo(x * W, y * H);
+			}
+			ctx.closePath();
+
+			ctx.fillStyle = `#fff`;
+			ctx.globalAlpha = (Math.sin(now / 100) * 0.5 + 0.5) * 0.069 + 0.1;
+			ctx.fill();
+			ctx.globalAlpha = 1;
+			ctx.lineWidth = 2;
+			ctx.strokeStyle = '#fff';
+			ctx.stroke();
+
+			const size = 90;
+			ctx.translate(picked.x * W, picked.y * H - 10 - size);
+
+			if (picked.image) {
+				ctx.imageSmoothingEnabled = false;
+				ctx.drawImage(picked.image, -size / 2, 0, size, size);
+			}
+
+			ctx.translate(0, -5);
+			ctx.fillStyle = colors.label;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'bottom';
+			ctx.fillText(picked.name, 0, 0);
+
+			ctx.restore();
+		}
 	}
 
 	// graph
@@ -1326,7 +1366,7 @@ function drawHud(ctx) {
 		ctx.lineCap = ctx.lineJoin = 'round';
 		ctx.beginPath();
 		ctx.roundRect(-250, -100, 500, 200, 20);
-		ctx.fillStyle = 'hsla(0, 0%, 100%, 0.02)';
+		ctx.fillStyle = 'hsla(0, 0%, 100%, 0.1)';
 		ctx.fill();
 		ctx.stroke();
 
@@ -1376,20 +1416,99 @@ canvas.onmousedown = function (event) {
 	}
 }
 window.onmousemove = function (event) {
+	const pointer = [event.clientX, event.clientY];
 	if (lastPoint) {
-		const p = [event.clientX, event.clientY];
-		const dx = p[0] - lastPoint[0];
-		const dy = p[1] - lastPoint[1];
+		const dx = pointer[0] - lastPoint[0];
+		const dy = pointer[1] - lastPoint[1];
 		nrx += dy * 0.01;
 		nry -= dx * 0.01;
 		nrx = Math.max(-Math.PI / 2, Math.min(nrx, Math.PI / 2));
-		lastPoint = p;
+		lastPoint = pointer;
+	}
+
+	picked = null;
+
+	for (const layer of layers) {
+		let minZ = Infinity;
+
+		for (let i = 0; i < layer.depth; i++) {
+			const s = layer.outputSize * gap;
+			const z = boxes[layer.offset][2] + i * 2.666;
+
+			const points = [
+				[-s, s, z], 
+				[s, s, z], 
+				[s, -s, z], 
+				[-s, -s, z]
+			];
+
+			let midZ = 0;
+
+			const path = new Path2D();
+			for (const p of points) {
+				const [x, y, z] = project(...p);
+				path.lineTo(x * window.innerWidth, y * window.innerHeight);
+				midZ += z;
+			}
+
+			midZ /= points.length;
+
+			if (hudCtx.isPointInPath(path, ...pointer) && midZ < minZ) {
+				picked = {
+					layer, 
+					i, 
+					points
+				};
+				minZ = midZ;
+			}
+		}
+	}
+
+	if (picked) {
+		picked.x = pointer[0] / window.innerWidth;
+		picked.y = pointer[1] / window.innerHeight;
+
+		const layer = picked.layer;
+		picked.name = layer.type + ' Kernel #' + (picked.i + 1);
+
+		if (layer) {
+			const l = layer.kernelSize * layer.kernelSize;
+
+			picked.image = createImage(
+				layer.kernels.slice(picked.i * l, picked.i * l + l), 
+				layer.kernelSize
+			);
+		}
 	}
 }
 window.onmouseup = function (event) {
 	if (event.button === 0) {
 		lastPoint = null;
 	}
+}
+
+function createImage(data, size) {
+	const canvas = document.createElement('canvas');
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext('2d');
+
+	const imageData = ctx.createImageData(size, size);
+
+	let min = Infinity;
+	let max = -Infinity;
+	for (let i = 0; i < data.length; i++) {
+		min = Math.min(data[i], min);
+		max = Math.max(data[i], max);
+	}
+
+	for (let i = 0; i < data.length; i++) {
+		const f = (data[i] - min) / (max - min) * 255;
+		imageData.data.set([f, f, f, 255], i * 4);
+	}
+
+	ctx.putImageData(imageData, 0, 0);
+
+	return canvas;
 }
 
 let showT = 0;

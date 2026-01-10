@@ -64,7 +64,7 @@ class Conv {
 	toJson() {
 		return {
 			type: 'Conv', 
-			depth: this.depth, 
+			depth: this.depth * this.inputDepth, 
 			outputSize: this.outputSize, 
 			kernelSize: this.kernelSize
 		};
@@ -708,6 +708,25 @@ function train() {
 	}
 
 	postMessage(msg);
+	sendParams();
+}
+
+function sendParams() {
+	const map = {};
+
+	for (let i = 0; i < layers.length; i++) {
+		const layer = layers[i];
+		if (layer instanceof Conv) {
+			map[i + 1] = {
+				kernels: layer.kernels
+			};
+		}
+	}
+
+	postMessage({
+		id: 'params', 
+		layers: map
+	});
 }
 
 function forward(x) {
@@ -814,6 +833,8 @@ function setLayers(l) {
 		id: 'layers', 
 		layers: layers.map(layer => layer.toJson())
 	});
+
+	sendParams();
 }
 
 function getLossCurve(x) {
