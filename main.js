@@ -712,9 +712,11 @@ void main() {
 `, `
 
 precision mediump float;
+
+uniform vec4 color;
 	
 void main() {
-	gl_FragColor = vec4(0.5);
+	gl_FragColor = color;
 }
 
 `);
@@ -778,12 +780,15 @@ let objectCount = 0;
 
 const gap = 1.666;
 const layerGap = 25;
+const depthGap = 2.666;
 
 let layers = [{
 	type: 'Input', 
 	size: 1, 
 	depth: 1
 }];
+
+const texts = [];
 
 function initObjects() {
 	if (worldPosBuffer) {
@@ -793,6 +798,7 @@ function initObjects() {
 	}
 
 	boxes = [];
+	texts.length = 0;
 
 	let pz = 0;
 	let lastDepth = 1;
@@ -811,7 +817,7 @@ function initObjects() {
 				}
 			}
 
-			pz += 2.666;
+			pz += depthGap;
 		}
 
 		pz += layerGap;
@@ -856,19 +862,28 @@ function initObjects() {
 				layer.offset = layers[i - 1].offset;
 				break;
 		}
+
+		if (layer.kernelSize) {
+			texts.push({
+				text: `${layer.type} ${layer.kernelSize}x${layer.kernelSize}${layer.depth ? `x${layer.depth}` : ''}`, 
+				pos: [
+					0, 
+					(layer.outputSize + 1) * gap, 
+					layer.z + (lastDepth - 1) * depthGap / 2
+				]
+			});
+		}
 	}
 
-	let minZ = Infinity;
-	let maxZ = -Infinity;
-	for (const box of boxes) {
-		const z = box[2];
-		minZ = Math.min(z, minZ);
-		maxZ = Math.max(z, maxZ);
-	}
+	if (boxes.length > 0) {
+		const centerZ = (boxes[boxes.length - 1][2] + boxes[0][2]) / 2;
+		for (const box of boxes) {
+			box[2] = box[2] - centerZ;
+		}
 
-	const centerZ = (minZ + maxZ) / 2;
-	for (const box of boxes) {
-		box[2] = box[2] - centerZ;
+		for (const item of texts) {
+			item.pos[2] -= centerZ;
+		}
 	}
 
 	objectCount = boxes.length;
@@ -1143,6 +1158,11 @@ function drawHud(ctx) {
 	ctx.save();
 	ctx.scale2(scale);
 
+	ctx.lineCap = ctx.lineJoin = 'round';
+	ctx.font = 'normal 10px monospace';
+	ctx.textBaseline = 'middle';	
+	ctx.textAlign = 'center';
+
 	if (showingLossLandscape) {
 		ctx.fillStyle = colors.activation;
 		ctx.textAlign = 'center';
@@ -1160,6 +1180,16 @@ function drawHud(ctx) {
 	} else {
 		const r = getScreenSpaceSize() * H;
 		const offset = r + 10;
+
+		for (const item of texts) {
+			const p = project2(...item.pos);
+			if (p) {
+				ctx.textBaseline = 'bottom';
+				ctx.textAlign = 'center';
+				ctx.fillStyle = colors.label;
+				ctx.fillText(item.text, p[0] * W, p[1] * H - 4.666);
+			}
+		}
 
 		const outputLayer = layers[layers.length - 1];
 
@@ -1211,12 +1241,32 @@ function drawHud(ctx) {
 			ctx.closePath();
 
 			ctx.fillStyle = `#fff`;
-			ctx.globalAlpha = (Math.sin(now / 100) * 0.5 + 0.5) * 0.069 + 0.1;
+			const t = (Math.sin(now / 100) * 0.5 + 0.5);
+			ctx.globalAlpha = t * 0.069 + 0.1;
 			ctx.fill();
 			ctx.globalAlpha = 1;
 			ctx.lineWidth = 2;
 			ctx.strokeStyle = '#fff';
 			ctx.stroke();
+
+			ctx.save();
+			ctx.clip();
+
+			const z = picked.points[0][2];
+			const r = Math.abs(picked.points[0][0]) * 0.69969;
+
+			ctx.beginPath()
+			for (let i = 0; i < 5; i++) {
+				const a = PI2 * i / 2.5 + now / 2666 + picked.i / picked.layer.depth * 2.666;
+				const [x, y] = project(Math.cos(a) * r, Math.sin(a) * r, z);
+				ctx.lineTo(x * W, y * H);
+			}
+			ctx.closePath();
+			ctx.globalAlpha = 0.0555 + t * 0.0666;
+			ctx.lineWidth = 8.555;
+			ctx.stroke();
+
+			ctx.restore();
 
 			const size = 90;
 			ctx.translate(picked.x * W, picked.y * H - 10 - size);
@@ -1511,6 +1561,66 @@ function createImage(data, size) {
 	return canvas;
 }
 
+const rope = createRope();
+
+function createRope() {
+	const points = [];
+
+	const size = 5.55;
+	const y = 400;
+	const z = -450;
+	const sy = 2.666;
+	const h = 666;
+
+	const n = 69;
+	for (let i = 0; i <= n; i++) {
+		const f = i / n;
+		const a = f * PI2 - Math.PI / 2;
+		let x = Math.sin(a);
+		x = f < 0.5 ? Math.pow(x, 5) : x;
+		points.push([
+			x * size, 
+			Math.cos(a) * (f < 0.5 ? sy : 1) * size + y
+		]);
+	}
+
+	const positions = [
+		0, y + size * sy, z, 
+		0, y + h, z
+	];
+
+	const code = '.-. .- -- '.split('');
+	
+	let sum = 0;
+	for (let i = 0; i < code.length; i++) {
+		const c = code[i];
+		code[i] = [c, sum];
+		sum += c === ' ' ? 3 : 1;
+	}
+
+	for (const [c, v] of code) {
+		if (c === ' ') continue;
+		const a = v / sum * PI2;
+		const d = c === '-' ? 36 : 14;
+		positions.push(
+			0, y + h, z, 
+			Math.sin(a) * d, y + h, z + Math.cos(a) * d
+		);
+	}
+
+	for (let i = 0; i < points.length; i++) {
+		positions.push(
+			...points[i], z, 
+			...points[(i + 1) % points.length], z
+		);
+	}
+
+	return {
+		buffer: createBuffer(new Float32Array(positions)),
+		count: positions.length / 3
+	};
+}
+
 let showT = 0;
 
 let projectionMatrix, viewMatrix;
@@ -1637,6 +1747,7 @@ function render() {
 
 	renderBg();
 
+	renderLines(rope.buffer, rope.count, [0.27, 0.18, 0.03, 1]);
 	showingLossLandscape ? renderLossLandscape() : renderBoxes();
 }
 
@@ -1750,18 +1861,21 @@ function renderLossLandscape() {
 		gl.disableVertexAttribArray(planeProgram.attributes.intensity);
 	}
 
-	// 
+	renderLines(lossLandscape.posBuffer, lossLandscape.lineCount, [0.5, 0.5, 0.5, 0.5]);
+}
 
+function renderLines(buffer, count, color) {
 	gl.useProgram(planeLineProgram);
 
 	gl.uniformMatrix4fv(planeLineProgram.uniforms.projectionMatrix, false, projectionMatrix);
 	gl.uniformMatrix4fv(planeLineProgram.uniforms.viewMatrix, false, viewMatrix);
+	gl.uniform4fv(planeLineProgram.uniforms.color, color);
 
-	gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.lineBuffer);
+	gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 	gl.enableVertexAttribArray(planeLineProgram.attributes.position);
 	gl.vertexAttribPointer(planeLineProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
 
-	gl.drawArrays(gl.LINES, 0, lossLandscape.lineCount);
+	gl.drawArrays(gl.LINES, 0, count);
 
 	gl.disableVertexAttribArray(planeLineProgram.attributes.position);
 }
