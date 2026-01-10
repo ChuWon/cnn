@@ -18,6 +18,14 @@ function createModel() {
 	}
 }
 
+modelId = '69969';
+worker.postMessage({
+	id: 'createModel', 
+	modelId
+});
+
+let predictT = 0;
+
 function reset(id) {
 	modelId = id || Math.random().toString(32).slice(2);
 	epoch = 0;
@@ -28,6 +36,9 @@ function reset(id) {
 	epoching = false;
 	lossCurving = false;
 	lossLandscaping = false;
+	predicting = false;
+	predictT = 1;
+	prediction = null;
 
 	lossLandscapePoints.length = 0;
 	disposeLossLandscape();
@@ -49,6 +60,7 @@ let lastCheckpointT = 0;
 let epoching = false;
 let lossCurving = false;
 let lossLandscaping = false;
+let predicting = false;
 
 function setEpochProgress() {
 	progress = Math.min(1, (epoch + epochPercent) / epochs);
@@ -60,6 +72,8 @@ function setEpoch(msg) {
 	epochPercent = msg.epochPercent;
 	setEpochProgress();
 }
+
+let prediction;
 
 worker.onmessage = function (event) {
 	const msg = event.data;
@@ -115,19 +129,50 @@ worker.onmessage = function (event) {
 			break;
 
 		case 'prediction': {
-			let maxIndex = -1;
-			let max = -Infinity;
+			predicting = false;
 
-			for (let i = 0; i < msg.y.length; i++) {
-				const p = msg.y[i];
-				if (p > max) {
-					maxIndex = i;
-					max = p;
+			updateStartActivation();
+
+			for (let i = msg.layerOutputs.length - 1; i >= 0; i--) {
+				const outputs = msg.layerOutputs[i];
+				const layer = layers[i];
+				if (layer.type === 'Activation') {
+					i--;
+				}
+
+				let min = Infinity;
+				let max = -Infinity;
+				for (let j = 0; j < outputs.length; j++) {
+					const v = outputs[j];
+					min = Math.min(min, v);
+					max = Math.max(max, v);
+				}
+
+				const f = max !== min ? 1 / (max - min) : 1;
+				for (let j = 0; j < outputs.length; j++) {
+					activationData[layer.offset + j] = (outputs[j] - min) * f;
 				}
 			}
 
-			console.log(`probs: ${msg.y}\nprediction: ${maxIndex}`);
-			alert(`prediction: ${maxIndex}`);
+			gl.bindBuffer(gl.ARRAY_BUFFER, activationBuffer);
+			gl.bufferSubData(gl.ARRAY_BUFFER, 0, activationData);
+
+			const probs = msg.layerOutputs[msg.layerOutputs.length - 1];
+
+			let maxProb = -Infinity;
+			let result = -1;
+			for (let i = 0; i < probs.length; i++) {
+				const p = probs[i];
+				if (p > maxProb) {
+					result = i;
+					maxProb = p;
+				}
+			}
+
+			prediction = {
+				probs, 
+				result
+			};
 		}	break;
 
 		case 'lossCurve':
@@ -165,6 +210,7 @@ worker.onmessage = function (event) {
 			}
 
 			setSetting('trainingEnabled', false);
+			setSetting('lossLandscape', false);
 
 			for (const key in data.graphs) {
 				if (key in graphs) {
@@ -180,9 +226,29 @@ worker.onmessage = function (event) {
 			alert(`Failed to load checkpoint!\nError: ${msg.error}`);
 			break;
 
+		case 'layers':
+			layers = msg.layers;
+			layers.unshift({
+				type: 'Input', 
+				size: inputSize, 
+				depth: 1
+			});
+			initObjects();
+			break;
+
 		default:
 			console.log(`Unknown msg id from worker: ${msg.id}`);
 	}
+}
+
+function updateStartActivation() {
+	for (let i = 0; i < startActivationData.length; i++) {
+		startActivationData[i] = startActivationData[i] + (activationData[i] - startActivationData[i]) * predictT;
+	}
+	predictT = 0;
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, startActivationBuffer);
+	gl.bufferSubData(gl.ARRAY_BUFFER, 0, startActivationData);
 }
 
 function setLearningRate() {
@@ -227,27 +293,21 @@ function importCheckpoint(json) {
 	});
 }
 
-function predict(image) {
-	const size = Math.sqrt(inputLength);
+let userInput;
 
+function predict(image) {
 	const canvas = document.createElement('canvas');
-	canvas.width = canvas.height = size;
+	canvas.width = canvas.height = inputSize;
 	const ctx = canvas.getContext('2d');
 
-	ctx.drawImage(image, 0, 0, size, size);
+	ctx.drawImage(image, 0, 0, inputSize, inputSize);
 
-	const imageData = ctx.getImageData(0, 0, size, size);
+	const imageData = ctx.getImageData(0, 0, inputSize, inputSize);
 
-	const x = new Float32Array(inputLength);
+	userInput = new Float32Array(inputLength);
 	for (let i = 0; i < inputLength; i++) {
-		x[i] = imageData.data[i * 4 + 3] / 255;
+		userInput[i] = imageData.data[i * 4 + 3] / 255;
 	}
-
-	worker.postMessage({
-		id: 'predict', 
-		modelId, 
-		x
-	});
 }
 
 function isTraining() {
@@ -344,6 +404,7 @@ function disposeLossLandscape() {
 
 const epochs = 5;
 
+const inputSize = 28;
 const inputLength = 28 * 28;
 
 function Grid(size = 20) {
@@ -367,6 +428,8 @@ function Grid(size = 20) {
 	return canvas;
 }
 
+let canAutoPredict = true;
+
 function SketchUI() {
 	const size = 150;
 	const el = fromHtml(`<div style="
@@ -379,10 +442,7 @@ function SketchUI() {
 		grid-gap: 5px;
 		pointer-events: all;
 	">
-		<div class="row">
-			<div class="btn predict-btn">predict</div>
-			<div class="btn clear-btn">clear</div>
-		</div>
+		<div class="btn clear-btn">clear</div>
 		<canvas style="
 			width: ${size}px;
 			height: ${size}px;
@@ -403,10 +463,9 @@ function SketchUI() {
 		paths.length = 0;
 		path = null;
 		draw();
-	}
 
-	el.querySelector('.predict-btn').onclick = function () {
-		predict(canvas);
+		canAutoPredict = true;
+		userInput = null;
 	}
 
 	const paths = [];
@@ -417,12 +476,18 @@ function SketchUI() {
 			path = [getPointer(event)];
 			paths.push(path);
 			draw();
+
+			canAutoPredict = false;
+			predict(canvas);
 		}
 	}
 	window.addEventListener('mousemove', event => {
 		if (path) {
 			path.push(getPointer(event));
 			draw();
+
+			canAutoPredict = false;
+			predict(canvas);
 		}
 	});
 	window.addEventListener('mouseup', event => {
@@ -469,6 +534,8 @@ function SketchUI() {
 
 // ui
 
+const PI2 = Math.PI * 2;
+
 const canvas = document.getElementById('canvas');
 
 const options = {
@@ -494,6 +561,70 @@ gl.cullFace(gl.BACK);
 
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+const program = createProgram(`
+
+precision mediump float;
+
+attribute vec3 position;
+attribute vec3 normal;
+attribute vec3 worldPos;
+attribute float startActivation;
+attribute float activation;
+
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+
+uniform float t;
+
+varying vec3 vColor;
+
+void main() {
+	vec3 p = position + worldPos;
+	gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+
+	vec3 lightPos = vec3(-50.0, 50.0, 69.0);
+	float light = max(0.0, dot(normalize(lightPos - p), normal)) * 0.4 + 0.6;
+	vColor = vec3(startActivation + (activation - startActivation) * t) * light;
+}
+
+`, `
+
+precision mediump float;
+
+varying vec3 vColor;
+
+void main() {
+	gl_FragColor = vec4(vColor, 1.0);
+}
+
+`);
+
+const lineProgram = createProgram(`
+
+precision mediump float;
+
+attribute vec3 position;
+attribute vec3 worldPos;
+
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+
+void main() {
+	vec3 p = position + worldPos;
+	gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+	gl_Position.z -= 0.005;
+}
+
+`, `
+
+precision mediump float;
+
+void main() {
+	gl_FragColor = vec4(0.2);
+}
+
+`);
 
 const bgProgram = createProgram(`
 
@@ -584,10 +715,33 @@ void main() {
 const mesh = {
 	indices: [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
 	vertices: [0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5],
-	normals: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1]
+	normals: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1], 
+	lines: getBoxLines()
 };
 
-const PI2 = Math.PI * 2;
+function getBoxLines() {
+	const poly = [
+		[-0.5, 0.5], 
+		[0.5, 0.5], 
+		[0.5, -0.5], 
+		[-0.5, -0.5], 
+	];
+
+	const list = [];
+
+	for (let i = 0; i < poly.length; i++) {
+		const a = poly[i];
+		const b = poly[(i + 1) % poly.length];
+		list.push(...a, 0.5, ...b, 0.5);
+		list.push(...a, -0.5, ...b, -0.5);
+		list.push(...a, 0.5);
+		list.push(...a, -0.5);
+	}
+
+	console.log(list)
+
+	return list;
+}
 
 const map = gl.createTexture();
 gl.activeTexture(gl.TEXTURE0);
@@ -601,10 +755,135 @@ gl.generateMipmap(gl.TEXTURE_2D);
 
 const posBuffer = createBuffer(new Float32Array(mesh.vertices));
 const normalBuffer = createBuffer(new Float32Array(mesh.normals));
+const lineBuffer = createBuffer(new Float32Array(mesh.lines));
 
 const indexBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mesh.indices), gl.STATIC_DRAW);
+
+let worldPosData, 
+	startActivationData, 
+	activationData;
+
+let worldPosBuffer, 
+	startActivationBuffer, 
+	activationBuffer;
+
+let objectCount = 0;
+
+const gap = 1.666;
+const layerGap = 25;
+
+let layers = [{
+	type: 'Input', 
+	size: 1, 
+	depth: 1
+}];
+
+function initObjects() {
+	if (worldPosBuffer) {
+		gl.deleteBuffer(worldPosBuffer);
+		gl.deleteBuffer(startActivationBuffer);
+		gl.deleteBuffer(activationBuffer);
+	}
+
+	boxes = [];
+
+	let pz = 0;
+	let lastDepth = 1;
+
+	function addBoxes(size, depth) {
+		lastDepth = depth;
+
+		for (let z = 0; z < depth; z++) {
+			for (let y = 0; y < size; y++) {
+				for (let x = 0; x < size; x++) {
+					boxes.push([
+						getCoord(x, size), 
+						-getCoord(y, size), 
+						pz
+					]);
+				}
+			}
+
+			pz += 2.666;
+		}
+
+		pz += layerGap;
+	}
+
+	for (let i = 0; i < layers.length; i++) {
+		const layer = layers[i];
+		layer.offset = boxes.length;
+
+		switch (layer.type) {
+			case 'Input':
+				addBoxes(layer.size, layer.depth);
+				break;
+
+			case 'Conv':
+				addBoxes(layer.outputSize, layer.depth);
+				break;
+
+			case 'MaxPool':
+				addBoxes(layer.outputSize, lastDepth);
+				break;
+
+			case 'Linear':
+				const size = Math.sqrt(layer.outputLength);
+				if (Math.floor(size) !== size) {
+					for (let y = 0; y < layer.outputLength; y++) {
+						boxes.push([
+							0, 
+							-getCoord(y, layer.outputLength), 
+							pz
+						]);
+					}
+					
+					pz += layerGap;
+				} else {
+					addBoxes(size, 1);
+				}
+				break;
+
+			case 'Activation':
+				layer.offset = layers[i - 1].offset;
+				break;
+		}
+	}
+
+	let minZ = Infinity;
+	let maxZ = -Infinity;
+	for (const box of boxes) {
+		const z = box[2];
+		minZ = Math.min(z, minZ);
+		maxZ = Math.max(z, maxZ);
+	}
+
+	const centerZ = (minZ + maxZ) / 2;
+	for (const box of boxes) {
+		box[2] = box[2] - centerZ;
+	}
+
+	objectCount = boxes.length;
+	worldPosData = new Float32Array(3 * objectCount);
+	startActivationData = new Float32Array(objectCount);
+	activationData = new Float32Array(objectCount);
+
+	for (let i = 0; i < objectCount; i++) {
+		worldPosData.set(boxes[i], i * 3);
+	}
+
+	worldPosBuffer = createBuffer(worldPosData);
+	startActivationBuffer = createBuffer(startActivationData, true);
+	activationBuffer = createBuffer(activationData, true);
+}
+
+initObjects();
+
+function getCoord(x, n) {
+	return n > 1 ? (x / (n - 1) * 2 - 1) * n * gap : 0;
+}
 
 const hudCanvas = document.getElementById('hudCanvas');
 const hudCtx = hudCanvas.getContext('2d');
@@ -872,6 +1151,49 @@ function drawHud(ctx) {
 				ctx.fillText(loss.toFixed(2), p[0] * W, p[1] * H);
 			}
 		}
+	} else {
+		const r = getScreenSpaceSize() * H;
+		const offset = r + 10;
+
+		const outputLayer = layers[layers.length - 1];
+
+		for (let i = 0; i < outputLayer.outputLength; i++) {
+			const p = project2(...boxes[outputLayer.offset + i]);
+			if (p) {
+				const [x, y] = p;
+				const dir = x > 0.5 ? 1 : -1;
+				ctx.save();
+				ctx.translate(x * W, y * H);
+				ctx.textBaseline = 'middle';
+				ctx.textAlign = x > 0.5 ? 'left' : 'right';
+				ctx.fillStyle = colors.label;
+				ctx.fillText(i, dir * offset, 0);
+
+				if (prediction && predictT > 0.99) {
+					ctx.textAlign = x < 0.5 ? 'left' : 'right';
+					ctx.fillStyle = colors.activation;
+					ctx.fillText(prediction.probs[i].toFixed(2), -dir * offset, 0);
+
+					if (i === prediction.result) {
+						ctx.scale(dir, 1);
+						ctx.translate(offset + 15 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
+						ctx.beginPath();
+						ctx.moveTo(0, 0);
+						ctx.lineTo(15, 12);
+						ctx.lineTo(15, 5);
+						ctx.lineTo(35, 5);
+						ctx.lineTo(35, -5);
+						ctx.lineTo(15, -5);
+						ctx.lineTo(15, -12);
+						ctx.closePath();
+						ctx.fillStyle = getHoverColor();
+						ctx.fill();
+					}
+				}
+
+				ctx.restore();
+			}
+		}
 	}
 
 	// graph
@@ -1036,7 +1358,7 @@ let ry = -0.5;
 let depth = 180;
 
 const minDepth = 2;
-const maxDepth = 300;
+const maxDepth = 130;
 
 canvas.onwheel = function (event) {
 	nDepth *= (event.deltaY > 0 ? 1.1 : 0.9);
@@ -1120,6 +1442,15 @@ function update() {
 			datasetNeedsUpdate = false;
 		}
 
+		if (!showingLossLandscape && !predicting && (userInput || canAutoPredict && predictT === 1)) {
+			predicting = true;
+			worker.postMessage({
+				id: 'predict', 
+				x: userInput
+			});
+			userInput = null;
+		}
+
 		if (isTraining()) {
 			if (!epoching) {
 				epoching = true;
@@ -1146,12 +1477,12 @@ function update() {
 				});
 			}
 		}
+
+		predictT = lerp(predictT, 1, getLerpFactor(0.1));
 	}
 }
 
 function render() {
-	drawHud(hudCtx);
-
 	const cosX = Math.cos(rx);
 	const sinX = Math.sin(rx);
 	const cosY = Math.cos(ry);
@@ -1178,6 +1509,8 @@ function render() {
 		0, 0, 2 * far * near * nf, 1
 	];
 
+	drawHud(hudCtx);
+
 	gl.viewport(0, 0, canvas.width, canvas.height);
 
 	gl.clearColor(0, 0, 0, 1);
@@ -1185,7 +1518,7 @@ function render() {
 
 	renderBg();
 
-	showingLossLandscape && renderLossLandscape();
+	showingLossLandscape ? renderLossLandscape() : renderBoxes();
 }
 
 function renderBg() {
@@ -1209,6 +1542,70 @@ function renderBg() {
 	gl.disableVertexAttribArray(bgProgram.attributes.position);
 
 	gl.clear(gl.DEPTH_BUFFER_BIT);
+}
+
+function renderBoxes() {
+	gl.useProgram(program);
+
+	gl.uniform1f(program.uniforms.t, predictT);
+	gl.uniformMatrix4fv(program.uniforms.projectionMatrix, false, projectionMatrix);
+	gl.uniformMatrix4fv(program.uniforms.viewMatrix, false, viewMatrix);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+	gl.enableVertexAttribArray(program.attributes.position);
+	gl.vertexAttribPointer(program.attributes.position, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.position, 0);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+	gl.enableVertexAttribArray(program.attributes.normal);
+	gl.vertexAttribPointer(program.attributes.normal, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.normal, 0);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, worldPosBuffer);
+	gl.enableVertexAttribArray(program.attributes.worldPos);
+	gl.vertexAttribPointer(program.attributes.worldPos, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.worldPos, 1);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, startActivationBuffer);
+	gl.enableVertexAttribArray(program.attributes.startActivation);
+	gl.vertexAttribPointer(program.attributes.startActivation, 1, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.startActivation, 1);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, activationBuffer);
+	gl.enableVertexAttribArray(program.attributes.activation);
+	gl.vertexAttribPointer(program.attributes.activation, 1, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.activation, 1);
+
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+	ext.drawElementsInstancedANGLE(gl.TRIANGLES, mesh.indices.length, gl.UNSIGNED_SHORT, 0, objectCount);
+
+	gl.disableVertexAttribArray(program.attributes.position);
+	gl.disableVertexAttribArray(program.attributes.normal);
+	gl.disableVertexAttribArray(program.attributes.worldPos);
+	gl.disableVertexAttribArray(program.attributes.activation);
+	gl.disableVertexAttribArray(program.attributes.startActivation);
+
+	// lines
+
+	gl.useProgram(lineProgram);
+
+	gl.uniformMatrix4fv(lineProgram.uniforms.projectionMatrix, false, projectionMatrix);
+	gl.uniformMatrix4fv(lineProgram.uniforms.viewMatrix, false, viewMatrix);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+	gl.enableVertexAttribArray(lineProgram.attributes.position);
+	gl.vertexAttribPointer(lineProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(lineProgram.attributes.position, 0);
+
+	gl.bindBuffer(gl.ARRAY_BUFFER, worldPosBuffer);
+	gl.enableVertexAttribArray(lineProgram.attributes.worldPos);
+	gl.vertexAttribPointer(lineProgram.attributes.worldPos, 3, gl.FLOAT, false, 0, 0);
+	ext.vertexAttribDivisorANGLE(lineProgram.attributes.worldPos, 1);
+
+	ext.drawArraysInstancedANGLE(gl.LINES, 0, mesh.lines.length, objectCount);
+
+	gl.disableVertexAttribArray(lineProgram.attributes.position);
+	gl.disableVertexAttribArray(lineProgram.attributes.worldPos);
 }
 
 function renderLossLandscape() {
@@ -1308,6 +1705,16 @@ function createBuffer(data, dynamic) {
 	gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
 	gl.bufferData(gl.ARRAY_BUFFER, data, dynamic ? gl.DYNAMIC_DRAW :  gl.STATIC_DRAW);
 	return buffer;
+}
+
+function getHoverColor() {
+	return `hsl(${(now / 400 % 1) * 360}deg, 100%, 70%)`;
+}
+
+function getScreenSpaceSize() {
+	const a = project(1, 1, 1);
+	const b = project(0, 0, 0);
+	return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
 }
 
 function project(x, y, z) {

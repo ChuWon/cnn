@@ -60,6 +60,15 @@ class Conv {
 
 		return inputGrad;
 	}
+
+	toJson() {
+		return {
+			type: 'Conv', 
+			depth: this.depth, 
+			outputSize: this.outputSize, 
+			kernelSize: this.kernelSize
+		};
+	}
 }
 
 class Activation {
@@ -84,6 +93,13 @@ class Activation {
 			out[i] = this.fPrime(this.x[i]) * grad[i];
 		}
 		return out;
+	}
+
+	toJson() {
+		return {
+			type: 'Activation', 
+			name: this.constructor.name
+		};
 	}
 }
 
@@ -176,6 +192,13 @@ class Linear {
 
 		return inputGrad;
 	}
+
+	toJson() {
+		return {
+			type: 'Linear', 
+			outputLength: this.outputLength
+		};
+	}
 }
 
 class MaxPool {
@@ -248,6 +271,14 @@ class MaxPool {
 		}
 
 		return inputGrad;
+	}
+
+	toJson() {
+		return {
+			type: 'MaxPool', 
+			outputSize: this.outputSize, 
+			kernelSize: this.kernelSize
+		};
 	}
 }
 
@@ -501,13 +532,20 @@ function convolveXD() {
 }
 
 function predict(x) {
-	const y = forward(x);
+	let y = x;
+	const layerOutputs = [y];
+
+	for (const layer of layers) {
+		y = layer.forward(y);
+		layerOutputs.push(y);
+	}
+	y = softmax(y, outputLength);
+	layerOutputs[layerOutputs.length - 1] = y;
 
 	postMessage({
 		id: 'prediction', 
 		modelId, 
-		x, 
-		y
+		layerOutputs
 	});
 }
 
@@ -677,7 +715,7 @@ function forward(x) {
 	for (let i = 0; i < layers.length; i++) {
 		y = layers[i].forward(y);
 	}
-	y = softmax(y, layers[layers.length - 1].outputLength);
+	y = softmax(y, outputLength);
 	return y;
 }
 
@@ -771,6 +809,11 @@ function setLayers(l) {
 	e = 0;
 	i = 0; 
 	epochTimeTaken = 0;
+
+	postMessage({
+		id: 'layers', 
+		layers: layers.map(layer => layer.toJson())
+	});
 }
 
 function getLossCurve(x) {
