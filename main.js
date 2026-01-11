@@ -210,7 +210,7 @@ worker.onmessage = function (event) {
 			}
 
 			setSetting('trainingEnabled', false);
-			setSetting('lossLandscape', false);
+			setSetting('lossLandscape', !false);
 
 			for (const key in data.graphs) {
 				if (key in graphs) {
@@ -350,9 +350,9 @@ function updateLossLandscape() {
 	for (let i = 0; i < lossLandscapePoints.length; i++) {
 		const f = (lossLandscapePoints[i] - min) / (max - min);
 		const p = [
-			((i % lossLandscapeLength) / (lossLandscapeLength - 1) * 2 - 1) * 150, 
-			-50 + f * 60, 
-			(Math.floor(i / lossLandscapeLength) / (lossLandscapeLength - 2) * 2 - 1) * 150
+			((i % lossLandscapeLength) / (lossLandscapeLength - 1) * 2 - 1) * 75, 
+			f * 100 - 80, 
+			(Math.floor(i / lossLandscapeLength) / (lossLandscapeLength - 2) * 2 - 1) * 75
 		];
 		p.f = f;
 		pointData.set(p, i * 3);
@@ -362,6 +362,7 @@ function updateLossLandscape() {
 	const posData = [];
 	const intensityData = [];
 	const lineData = [];
+	const normalData = [];
 
 	const h = Math.floor(n / lossLandscapeLength) - 1;
 	
@@ -391,6 +392,13 @@ function updateLossLandscape() {
 					b.f, a.f, c.f, 
 					b.f, c.f, d.f
 				);
+
+				const n1 = cross(dir(c, a), dir(b, a));
+				const n2 = cross(dir(d, c), dir(b, c));
+				normalData.push(
+					...n1, ...n1, ...n1, 
+					...n2, ...n2, ...n2
+				);
 			}
 		}
 	}
@@ -399,11 +407,36 @@ function updateLossLandscape() {
 		points, 
 		pointBuffer: createBuffer(pointData), 
 		posBuffer: createBuffer(new Float32Array(posData)), 
+		normalBuffer: createBuffer(new Float32Array(normalData)), 
 		intensityBuffer: createBuffer(new Float32Array(intensityData)), 
 		vertexCount: posData.length / 3, 
 		lineBuffer: createBuffer(new Float32Array(lineData)), 
 		lineCount: lineData.length / 3
 	};
+}
+
+function dir(a, b) {
+	let x = a[0] - b[0];
+	let y = a[1] - b[1];
+	let z = a[2] - b[2];
+
+	let d = Math.hypot(x, y, z);
+	if (d > 0) {
+		d = 1 / d;
+		x *= d;
+		y *= d;
+		z *= d;
+	}
+
+	return [x, y, z];
+}
+
+function cross(a, b) {
+	return [
+		a[1] * b[2] - a[2] * b[1], 
+		a[2] * b[0] - a[0] * b[2], 
+		a[0] * b[1] - a[1] * b[0]
+	];
 }
 
 function disposeLossLandscape() {
@@ -589,7 +622,7 @@ attribute float activation;
 
 uniform mat4 projectionMatrix;
 uniform mat4 viewMatrix;
-
+uniform vec3 lightPos;
 uniform float t;
 
 varying vec3 vColor;
@@ -598,7 +631,6 @@ void main() {
 	vec3 p = position + worldPos;
 	gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 
-	vec3 lightPos = vec3(-50.0, 50.0, 69.0);
 	float light = max(0.0, dot(normalize(lightPos - p), normal)) * 0.4 + 0.6;
 	vColor = vec3(startActivation + (activation - startActivation) * t) * light;
 }
@@ -680,25 +712,29 @@ precision mediump float;
 
 attribute vec3 position;
 attribute float intensity;
+attribute vec3 normal;
 
 uniform mat4 projectionMatrix;
 uniform mat4 viewMatrix;
+uniform vec3 lightPos;
 
-varying float vIntensity;
+varying vec3 vColor;
 
 void main() {
 	gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
-	vIntensity = intensity;
+
+	float light = max(0.0, dot(normalize(lightPos - position), normalize(normal))) * 0.3 + 0.7;
+	vColor = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), intensity) * light;
 }
 
 `, `
 
 precision mediump float;
 
-varying float vIntensity;
+varying vec3 vColor;
 
 void main() {
-	gl_FragColor = vec4(mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity), 1.0);
+	gl_FragColor = vec4(vColor, 1.0);
 }
 
 `);
@@ -728,6 +764,8 @@ void main() {
 }
 
 `);
+
+const lightPos = [-50, 50, 69];
 
 const mesh = {
 	indices: [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
@@ -1173,7 +1211,6 @@ function drawHud(ctx) {
 
 	if (showingLossLandscape) {
 		ctx.fillStyle = colors.activation;
-		ctx.textAlign = 'center';
 		ctx.textBaseline = 'bottom';
 
 		for (let i = 0; i < lossLandscape.points.length; i++) {
@@ -1853,6 +1890,7 @@ function renderBoxes() {
 	gl.useProgram(program);
 
 	gl.uniform1f(program.uniforms.t, predictT);
+	gl.uniform3fv(program.uniforms.lightPos, lightPos);
 	gl.uniformMatrix4fv(program.uniforms.projectionMatrix, false, projectionMatrix);
 	gl.uniformMatrix4fv(program.uniforms.viewMatrix, false, viewMatrix);
 
@@ -1889,6 +1927,9 @@ function renderBoxes() {
 	gl.disableVertexAttribArray(program.attributes.worldPos);
 	gl.disableVertexAttribArray(program.attributes.activation);
 	gl.disableVertexAttribArray(program.attributes.startActivation);
+	ext.vertexAttribDivisorANGLE(program.attributes.worldPos, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.startActivation, 0);
+	ext.vertexAttribDivisorANGLE(program.attributes.activation, 0);
 
 	// lines
 
@@ -1918,12 +1959,17 @@ function renderLossLandscape() {
 	if (lossLandscape.vertexCount > 0) {
 		gl.useProgram(planeProgram);
 
+		gl.uniform3fv(planeProgram.uniforms.lightPos, lightPos);
 		gl.uniformMatrix4fv(planeProgram.uniforms.projectionMatrix, false, projectionMatrix);
 		gl.uniformMatrix4fv(planeProgram.uniforms.viewMatrix, false, viewMatrix);
 
 		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.posBuffer);
 		gl.enableVertexAttribArray(planeProgram.attributes.position);
 		gl.vertexAttribPointer(planeProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.normalBuffer);
+		gl.enableVertexAttribArray(planeProgram.attributes.normal);
+		gl.vertexAttribPointer(planeProgram.attributes.normal, 3, gl.FLOAT, false, 0, 0);
 
 		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.intensityBuffer);
 		gl.enableVertexAttribArray(planeProgram.attributes.intensity);
@@ -1934,10 +1980,11 @@ function renderLossLandscape() {
 		gl.enable(gl.CULL_FACE);
 
 		gl.disableVertexAttribArray(planeProgram.attributes.position);
+		gl.disableVertexAttribArray(planeProgram.attributes.normal);
 		gl.disableVertexAttribArray(planeProgram.attributes.intensity);
 	}
 
-	renderLines(lossLandscape.lineBuffer, lossLandscape.lineCount, [0.5, 0.5, 0.5, 0.5]);
+	renderLines(lossLandscape.lineBuffer, lossLandscape.lineCount, [0.3, 0.3, 0.3, 0.3]);
 }
 
 function renderLines(buffer, count, color) {
