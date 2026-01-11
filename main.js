@@ -210,7 +210,7 @@ worker.onmessage = function (event) {
 			}
 
 			setSetting('trainingEnabled', false);
-			setSetting('lossLandscape', !false);
+			setSetting('lossLandscape', false);
 
 			for (const key in data.graphs) {
 				if (key in graphs) {
