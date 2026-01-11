@@ -49,7 +49,7 @@ function reset(id) {
 const lossCurveLength = 69;
 const lossCurveRange = [-8.555, 4.666];
 
-const lossLandscapeLength = 18;
+const lossLandscapeLength = 36;
 const lossLandscapeSize = lossLandscapeLength * lossLandscapeLength;
 const lossLandscapeRange = [-6.9, 6.9];
 
@@ -220,6 +220,13 @@ worker.onmessage = function (event) {
 					}
 				}
 			}
+
+			if ((data.lossLandscape?.length || 0) > 0) {
+				for (let i = 0; i < data.lossLandscape.length; i++) {
+					lossLandscapePoints.push(data.lossLandscape[i]);
+				}
+				updateLossLandscape();
+			}
 			break;
 
 		case 'checkpointError':
@@ -279,6 +286,7 @@ function createDatasets() {
 function saveCheckpoint() {
 	const data = {
 		settings, 
+		lossLandscape: new Float32Array(lossLandscapePoints), 
 		graphs: {}
 	}
 
@@ -1169,7 +1177,7 @@ function drawHud(ctx) {
 		ctx.textBaseline = 'bottom';
 
 		for (let i = 0; i < lossLandscape.points.length; i++) {
-			if (depth > 200 && ((i % lossLandscapeLength) + Math.floor(i / lossLandscapeLength) % 2) % 2 === 0) continue;
+			if (depth > 70 && ((i % lossLandscapeLength) + Math.floor(i / lossLandscapeLength) % 2) % 2 === 0) continue;
 
 			const loss = lossLandscapePoints[i];
 			const p = project2(...lossLandscape.points[i]);
@@ -1836,6 +1844,7 @@ function renderBoxes() {
 
 	gl.disableVertexAttribArray(lineProgram.attributes.position);
 	gl.disableVertexAttribArray(lineProgram.attributes.worldPos);
+	ext.vertexAttribDivisorANGLE(lineProgram.attributes.worldPos, 0);
 }
 
 function renderLossLandscape() {
@@ -1861,7 +1870,7 @@ function renderLossLandscape() {
 		gl.disableVertexAttribArray(planeProgram.attributes.intensity);
 	}
 
-	renderLines(lossLandscape.posBuffer, lossLandscape.lineCount, [0.5, 0.5, 0.5, 0.5]);
+	renderLines(lossLandscape.lineBuffer, lossLandscape.lineCount, [0.5, 0.5, 0.5, 0.5]);
 }
 
 function renderLines(buffer, count, color) {

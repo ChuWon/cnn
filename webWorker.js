@@ -283,7 +283,9 @@ class MaxPool {
 }
 
 function createParams(n, f = 1) {
-	return Float32Array.from({ length: n }, () => (Math.random() - 0.5) * f);
+	const out = Float32Array.from({ length: n }, () => (Math.random() - 0.5) * f);
+	out.f = f;
+	return out;
 }
 
 function updateParams(params, grad) {
@@ -840,7 +842,7 @@ function setLayers(l) {
 function getLossCurve(x) {
 	const loss = getAlteredLoss((layer, key, params) => {
 		!layer.startParams && (layer.startParams = {});
-		const start = layer.startParams[key] || (layer.startParams[key] = createParams(params.length));
+		const start = layer.startParams[key] || (layer.startParams[key] = createParams(params.length, params.f));
 
 		const newParams = new Float32Array(params.length);
 		for (let j = 0; j < params.length; j++) {
@@ -861,8 +863,8 @@ function getLossLandscape(x, y) {
 		!layer.dirX && (layer.dirX = {});
 		!layer.dirY && (layer.dirY = {});
 
-		const dx = layer.dirX[key] || (layer.dirX[key] = createParams(params.length));
-		const dy = layer.dirY[key] || (layer.dirY[key] = createParams(params.length));
+		const dx = layer.dirX[key] || (layer.dirX[key] = createParams(params.length, params.f));
+		const dy = layer.dirY[key] || (layer.dirY[key] = createParams(params.length, params.f));
 
 		const newParams = new Float32Array(params.length);
 		for (let i = 0; i < params.length; i++) {
