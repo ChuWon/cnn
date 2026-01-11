@@ -1239,11 +1239,19 @@ function drawHud(ctx) {
 			}
 		}
 
-		if (picked && depth > 70) {
+		if (picked) block: {
+			const projectedPoints = [];
+			for (const point of picked.points) {
+				const p = project2(...point);
+				if (!p) break;
+				projectedPoints.push(p);
+			}
+
+			if (projectedPoints.length < picked.points.length) break block;
+
 			ctx.save();
 			ctx.beginPath();
-			for (const p of picked.points) {
-				const [x, y, z] = project(...p);
+			for (const [x, y] of projectedPoints) {
 				ctx.lineTo(x * W, y * H);
 			}
 			ctx.closePath();
@@ -1455,6 +1463,14 @@ let rx = 0.6;
 let ry = -0.5;
 let depth = 180;
 
+let cx = 0;
+let cy = 0;
+let cz = 0;
+
+let ncx = 0;
+let ncy = 0;
+let ncz = 0;
+
 const minDepth = 2;
 const maxDepth = 130;
 
@@ -1476,11 +1492,21 @@ canvas.onmousedown = function (event) {
 window.onmousemove = function (event) {
 	const pointer = [event.clientX, event.clientY];
 	if (lastPoint) {
-		const dx = pointer[0] - lastPoint[0];
-		const dy = pointer[1] - lastPoint[1];
-		nrx += dy * 0.01;
-		nry -= dx * 0.01;
-		nrx = Math.max(-Math.PI / 2, Math.min(nrx, Math.PI / 2));
+		let dx = pointer[0] - lastPoint[0];
+		let dy = pointer[1] - lastPoint[1];
+		
+		if (event.shiftKey || event.ctrlKey) {
+			dx *= 0.3;
+			dy *= -0.3;
+			ncx += viewMatrix[0] * dx + viewMatrix[1] * dy;
+			ncy += viewMatrix[4] * dx + viewMatrix[5] * dy;
+			ncz += viewMatrix[8] * dx + viewMatrix[9] * dy;
+		} else {
+			nrx += dy * 0.01;
+			nry -= dx * 0.01;
+			nrx = Math.max(-Math.PI / 2, Math.min(nrx, Math.PI / 2));
+		}
+
 		lastPoint = pointer;
 	}
 
@@ -1529,7 +1555,7 @@ window.onmousemove = function (event) {
 		const layer = picked.layer;
 		picked.name = layer.type + ' Kernel #' + (picked.i + 1);
 
-		if (layer) {
+		if (layer.kernels) {
 			const l = layer.kernelSize * layer.kernelSize;
 
 			picked.image = createImage(
@@ -1655,6 +1681,10 @@ function update() {
 	ry = lerpAngle(ry, nry, lf);
 	depth = lerp(depth, nDepth, lf);
 
+	cx = lerp(cx, ncx, lf);
+	cy = lerp(cy, ncy, lf);
+	cz = lerp(cz, ncz, lf);
+
 	showingLossLandscape = settings.lossLandscape && lossLandscape && !isTraining();
 	graphs.lossCurve.visible = showingLossLandscape;
 
@@ -1731,6 +1761,10 @@ function render() {
 		-sinY, cosY * -sinX, cosY * cosX, 0, 
 		0, 0, -depth, 1
 	];
+
+	viewMatrix[12] += viewMatrix[0] * cx + viewMatrix[4] * cy + viewMatrix[8] * cz;
+	viewMatrix[13] += viewMatrix[1] * cx + viewMatrix[5] * cy + viewMatrix[9] * cz;
+	viewMatrix[14] += viewMatrix[2] * cx + viewMatrix[6] * cy + viewMatrix[10] * cz;
 
 	const near = 0.1;
 	const far = 1000;
