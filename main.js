@@ -1242,8 +1242,8 @@ function drawHud(ctx) {
 		if (picked) block: {
 			const projectedPoints = [];
 			for (const point of picked.points) {
-				const p = project2(...point);
-				if (!p) break;
+				const p = project(...point);
+				if (p[2] < 0 || p[2] > 1) break;
 				projectedPoints.push(p);
 			}
 
@@ -1300,6 +1300,39 @@ function drawHud(ctx) {
 
 			ctx.restore();
 		}
+	}
+
+	if (666 && Math.hypot(cx - ropePos[0], cy - ropePos[1], cz - ropePos[2]) < 100) block: {
+		const p = project2(ropePos[0], ropePos[1] - 12, ropePos[2]);
+		if (!p) break block;
+
+		ctx.save();
+		ctx.translate(p[0] * W, p[1] * H);
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.font = 'bolder 50px monospace';
+		ctx.fillStyle = 'brown';
+		ctx.fillText('भालट', 0, 4);
+
+		ctx.beginPath();
+		ctx.moveTo(-50, -20);
+		ctx.lineTo(50, 20);
+		ctx.moveTo(50, -20);
+		ctx.lineTo(-50, 20);
+		ctx.strokeStyle = 'red';
+		ctx.lineWidth = 5;
+		ctx.stroke();
+
+		ctx.font = 'normal 10px monospace';
+		ctx.fillStyle = getHoverColor();
+		ctx.fillText('⛧6⛧6⛧6⛧', 0, 0);
+
+		ctx.fillStyle = 'white';
+		ctx.textBaseline = 'top';
+		ctx.fillText(`▲चूहा: मुझे लंडी के साथ सम्भोग दो 3======>`, 0, 28);
+		ctx.fillText('फ: लंडी लंडी लंडी बड़ी लंडी बनो XD XD', 0, 28 + 13);
+
+		ctx.restore();
 	}
 
 	// graph
@@ -1492,18 +1525,18 @@ canvas.onmousedown = function (event) {
 window.onmousemove = function (event) {
 	const pointer = [event.clientX, event.clientY];
 	if (lastPoint) {
-		let dx = pointer[0] - lastPoint[0];
+		let dx = -(pointer[0] - lastPoint[0]);
 		let dy = pointer[1] - lastPoint[1];
 		
 		if (event.shiftKey || event.ctrlKey) {
 			dx *= 0.3;
-			dy *= -0.3;
+			dy *= 0.3;
 			ncx += viewMatrix[0] * dx + viewMatrix[1] * dy;
 			ncy += viewMatrix[4] * dx + viewMatrix[5] * dy;
 			ncz += viewMatrix[8] * dx + viewMatrix[9] * dy;
 		} else {
 			nrx += dy * 0.01;
-			nry -= dx * 0.01;
+			nry += dx * 0.01;
 			nrx = Math.max(-Math.PI / 2, Math.min(nrx, Math.PI / 2));
 		}
 
@@ -1595,14 +1628,14 @@ function createImage(data, size) {
 	return canvas;
 }
 
+const ropePos = [0, 400, -450];
 const rope = createRope();
 
 function createRope() {
 	const points = [];
 
 	const size = 5.55;
-	const y = 400;
-	const z = -450;
+	const [X, Y, Z] = ropePos;
 	const sy = 2.666;
 	const h = 666;
 
@@ -1613,14 +1646,14 @@ function createRope() {
 		let x = Math.sin(a);
 		x = f < 0.5 ? Math.pow(x, 5) : x;
 		points.push([
-			x * size, 
-			Math.cos(a) * (f < 0.5 ? sy : 1) * size + y
+			X + x * size, 
+			Y + Math.cos(a) * (f < 0.5 ? sy : 1) * size
 		]);
 	}
 
 	const positions = [
-		0, y + size * sy, z, 
-		0, y + h, z
+		X, Y + size * sy, Z, 
+		X, Y + h, Z
 	];
 
 	const code = '.-. .- -- '.split('');
@@ -1637,15 +1670,15 @@ function createRope() {
 		const a = v / sum * PI2;
 		const d = c === '-' ? 36 : 14;
 		positions.push(
-			0, y + h, z, 
-			Math.sin(a) * d, y + h, z + Math.cos(a) * d
+			X, Y + h, Z, 
+			X + Math.sin(a) * d, Y + h, Z + Math.cos(a) * d
 		);
 	}
 
 	for (let i = 0; i < points.length; i++) {
 		positions.push(
-			...points[i], z, 
-			...points[(i + 1) % points.length], z
+			...points[i], Z, 
+			...points[(i + 1) % points.length], Z
 		);
 	}
 
@@ -1762,9 +1795,9 @@ function render() {
 		0, 0, -depth, 1
 	];
 
-	viewMatrix[12] += viewMatrix[0] * cx + viewMatrix[4] * cy + viewMatrix[8] * cz;
-	viewMatrix[13] += viewMatrix[1] * cx + viewMatrix[5] * cy + viewMatrix[9] * cz;
-	viewMatrix[14] += viewMatrix[2] * cx + viewMatrix[6] * cy + viewMatrix[10] * cz;
+	viewMatrix[12] -= viewMatrix[0] * cx + viewMatrix[4] * cy + viewMatrix[8] * cz;
+	viewMatrix[13] -= viewMatrix[1] * cx + viewMatrix[5] * cy + viewMatrix[9] * cz;
+	viewMatrix[14] -= viewMatrix[2] * cx + viewMatrix[6] * cy + viewMatrix[10] * cz;
 
 	const near = 0.1;
 	const far = 1000;
