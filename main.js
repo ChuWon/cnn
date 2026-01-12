@@ -1684,7 +1684,7 @@ canvas.oncontextmenu = () => false;
 let picked;
 
 let lastPoint;
-window.onmousedown = function (event) {
+canvas.onmousedown = function (event) {
 	if (event.button === 0) {
 		lastPoint = [event.clientX, event.clientY];
 	}
