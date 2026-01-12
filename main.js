@@ -91,6 +91,8 @@ worker.onmessage = function (event) {
 			setLearningRate();
 			setBatchSize();
 
+			browseUI.reqContent();
+
 			fetch('cnn-e10-11.19.666')
 				.then(res => res.text())
 				.then(importCheckpoint)
@@ -99,6 +101,10 @@ worker.onmessage = function (event) {
 
 		case 'failed':
 			alert(`Failed to load dataset, can't train model. Reload the page to retry.`);
+			break;
+
+		case 'dataset':
+			browseUI.setContent(msg);
 			break;
 
 		case 'epochBatch':
@@ -489,7 +495,10 @@ function SketchUI() {
 		grid-gap: 5px;
 		pointer-events: all;
 	">
-		<div class="btn clear-btn">clear</div>
+		<div class="row">
+			<div class="btn browse-btn">browse</div>
+			<div class="btn clear-btn">clear</div>
+		</div>
 		<canvas style="
 			width: ${size}px;
 			height: ${size}px;
@@ -505,6 +514,10 @@ function SketchUI() {
 	const canvas = el.querySelector('canvas');
 	canvas.width = canvas.height = size * window.devicePixelRatio;
 	const ctx = canvas.getContext('2d');
+
+	el.querySelector('.browse-btn').onclick = function () {
+		browseUI.setVisible(true);
+	}
 
 	el.querySelector('.clear-btn').onclick = function () {
 		paths.length = 0;
@@ -1135,6 +1148,10 @@ CanvasRenderingContext2D.prototype.scale2 = function (f) {
 	this.scale(f, f);
 }
 
+HTMLElement.prototype.setClass = function (cls, v) {
+	this.classList[v ? 'add' : 'remove'](cls);
+}
+
 const colors = {
 	activation: '#ffeb3b', 
 	label: '#fb382a'
@@ -1226,6 +1243,18 @@ function drawHud(ctx) {
 			if (p) {
 				ctx.fillText(loss.toFixed(2), p[0] * W, p[1] * H);
 			}
+		}
+
+		const p = depth < 4.666 && project2(0.5, -75, 2);
+		if (p) {
+			ctx.save();
+			ctx.translate(p[0] * W, p[1] * H);
+			ctx.rotate(now / 466.6 % PI2);
+			ctx.font = 'bolder 16.66px monospace';
+			ctx.fillStyle = 'brown';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('f💩ggit', 0, 0);
+			ctx.restore();
 		}
 	} else {
 		drawNetworkHud(ctx, W, H);
@@ -1438,7 +1467,7 @@ function drawNetworkHud(ctx, W, H) {
 			ctx.fillStyle = colors.label;
 			ctx.fillText(i, dir * offset, 0);
 
-			if (prediction && predictT > 0.99) {
+			if (prediction && predictT > 0.99 && predictT < 1) {
 				ctx.textAlign = x < 0.5 ? 'left' : 'right';
 				ctx.fillStyle = colors.activation;
 				ctx.fillText(prediction.probs[i].toFixed(2), -dir * offset, 0);
@@ -1504,7 +1533,7 @@ function drawNetworkHud(ctx, W, H) {
 			ey += ks - 1;
 		}
 
-		const kernelZ = boxes[layer.offset - 1][2];
+		const kernelZ = boxes[layer.offset - 1][2] + 0.5;
 
 		const kernelPoints = projectPoints([
 			[getCoord(sx, inputSize) - 0.5, -getCoord(sy, inputSize) + 0.5, kernelZ], 
@@ -1655,7 +1684,7 @@ canvas.oncontextmenu = () => false;
 let picked;
 
 let lastPoint;
-canvas.onmousedown = function (event) {
+window.onmousedown = function (event) {
 	if (event.button === 0) {
 		lastPoint = [event.clientX, event.clientY];
 	}
@@ -1828,6 +1857,8 @@ function createRope() {
 	};
 }
 
+const browseUI = new BrowseUI();
+
 let showT = 0;
 
 let projectionMatrix, viewMatrix;
@@ -1868,6 +1899,8 @@ function update() {
 	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
 
 	dragT = lerp(dragT, dragging ? 1 : 0, getLerpFactor(0.2));
+
+	browseUI.update();
 
 	graphs.lossCurve.visible = settings.lossLandscape;
 
@@ -2171,8 +2204,8 @@ function getHoverColor() {
 }
 
 function getScreenSpaceSize() {
-	const a = project(1, 1, 1);
-	const b = project(0, 0, 0);
+	const a = project(cx + 1, cy + 1, cz + 1);
+	const b = project(cx, cy, cz);
 	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
@@ -2220,4 +2253,137 @@ function lerp(start, target, t) {
 
 function getLerpFactor(f) {
 	return 1 - Math.exp(-f * dt / 16);
+}
+
+function BrowseUI() {
+	const overlayEl = fromHtml(`<div class="overlay"></div>`);
+	uiEl.appendChild(overlayEl);
+
+	const el = fromHtml(`<div class="dialog">
+		<div class="dialog-header">dataset explolal</div>
+		<div class="dialog-close">[x]</div>
+		<div class="dialog-content" style="display: grid; place-content: center;">
+			<div>nothing to display xp...</div>
+		</div>
+		<div class="row" style="margin: 5px; margin-top: 0;">
+			<div>click to prelict XD</div>
+			<select class="pages" style="margin-left: auto;"></select>
+			<div class="page-count">of 0</div>
+			<div class="btn prev-btn disabled">prev</div>
+			<div class="btn next-btn disabled">next</div>
+		</div>
+	</div>`);
+	uiEl.appendChild(el);
+
+	const itemsPerPage = 200;
+
+	overlayEl.onclick = el.querySelector('.dialog-close').onclick = function () {
+		setVisible(false);
+	}
+
+	const contentEl = el.querySelector('.dialog-content');
+	const pageCountEl = el.querySelector('.page-count');
+	const pagesEl = el.querySelector('.pages');
+
+	const prevBtnEl = el.querySelector('.prev-btn');
+	const nextBtnEl = el.querySelector('.next-btn');
+
+	let pageCount = 0;
+	let currPage = 0;
+
+	pagesEl.onchange = function () {
+		currPage = parseInt(this.value);
+		reqContent();
+	}
+
+	nextBtnEl.onclick = function () {
+		incPage(1);
+	}
+
+	prevBtnEl.onclick = function () {
+		incPage(-1);
+	}
+
+	function incPage(dir) {
+		currPage += dir;
+		currPage = Math.max(0, Math.min(currPage, pageCount));
+		pagesEl.value = currPage;
+		onPageChange();
+		reqContent();
+	}
+
+	function onPageChange() {
+		prevBtnEl.setClass('disabled', currPage <= 0);
+		nextBtnEl.setClass('disabled', currPage >= pageCount - 1);
+	}
+
+	function setContent(data) {
+		contentEl.innerHTML = '';
+		contentEl.style.display = '';
+		
+		pageCount = Math.floor(data.totalCount / itemsPerPage);
+		currPage = Math.floor(data.start / itemsPerPage);
+
+		let html = '';
+		for (let i = 0; i < pageCount; i++) {
+			html += `<option value="${i}">Page ${i + 1}</option>`;
+		}
+		pagesEl.innerHTML = html;
+		pagesEl.value = currPage;
+		onPageChange();
+
+		pageCountEl.innerText = `of ${pageCount}`;
+
+		const text = data.items.map(item => item.y).join('');
+		const matches = text.matchAll(/3301|666|1102|2003|2020/g);
+	
+		for (let i = 0; i < data.items.length; i++) {
+			const item = data.items[i];
+			const canvas = createImage(item.x, inputSize);
+			canvas.className = 'preview';
+			canvas.x = item.x;
+			canvas.onclick = onClick;
+			contentEl.appendChild(canvas);
+		}
+
+		for (const match of matches) {
+			const l = match[0].length;
+			for (let i = 0; i < l; i++) {
+				contentEl.children[match.index + i].style.filter = 'invert(1)';
+			}
+		}
+	}
+
+	function onClick() {
+		userInput = this.x;
+		predictT = 1;
+	}
+
+	function reqContent() {
+		worker.postMessage({
+			id: 'dataset', 
+			start: currPage * itemsPerPage, 
+			count: itemsPerPage
+		});
+	}
+
+	let visible = false;
+	let t = 0;
+
+	function update() {
+		t = lerp(t, visible ? 1 : 0, getLerpFactor(0.2));
+
+		el.style.transform = `translate(-50%, -50%) scale(${t})`;
+		el.style.opacity = overlayEl.style.opacity = t;
+		overlayEl.style.display = t === 0 ? 'none' : '';
+	}
+
+	function setVisible(v) {
+		visible = v;
+	}
+
+	this.update = update;
+	this.reqContent = reqContent;
+	this.setVisible = setVisible;
+	this.setContent = setContent;
 }

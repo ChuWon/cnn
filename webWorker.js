@@ -577,13 +577,18 @@ function parse(text) {
 		});
 	}
 
-	data.sort(() => Math.random() - 0.5);
+	text = data.map(item => item.y).join('');
+	const matches = text.matchAll(/3301|666|1102|2003|2020/g);
+
+	for (const match of matches) {
+		console.log(`found ${match[0]} at image #${match.index} on page #${Math.floor(match.index / 200) + 1}`);
+	}
 
 	console.log(`dataset loaded! (${data.length} samples)`);
 }
 
 function createDatasets(dataSplit, trainSplit) {
-	const partialData = data.slice(0, Math.floor(dataSplit * data.length));
+	const partialData = Array.from(data).sort(() => Math.random() - 0.5).slice(0, Math.floor(dataSplit * data.length));
 
 	const n = Math.floor(trainSplit * partialData.length);
 	const trainData = partialData.slice(0, n);
@@ -1003,6 +1008,15 @@ onmessage = function (event) {
 
 		case 'lossLandscape': 
 			getLossLandscape(msg.x, msg.y);
+			break;
+
+		case 'dataset':
+			postMessage({
+				id: 'dataset', 
+				start: msg.start, 
+				items: data.slice(msg.start, msg.start + msg.count), 
+				totalCount: data.length
+			});
 			break;
 
 		default:

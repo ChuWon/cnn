@@ -16,8 +16,24 @@
 			background: #151515;
 		}
 
-		#canvas, #hudCanvas, .ui {
-			position: absolute;
+		* {
+			-webkit-tap-highlight-color: transparent;
+		}
+
+		::-webkit-scrollbar {
+			width: 5px;
+		}
+
+		::-webkit-scrollbar-track {
+			background: transparent;
+		}
+
+		::-webkit-scrollbar-thumb {
+			background: hsla(0, 0%, 20%, 0.75);
+		}
+
+		#canvas, #hudCanvas, .ui, .overlay {
+			position: fixed;
 			left: 0;
 			top: 0;
 			width: 100%;
@@ -28,6 +44,11 @@
 			opacity: 0.7;
 			pointer-events: none;
 			transform-origin: 0 0;
+		}
+
+		.overlay {
+			pointer-events: all;
+			background: rgba(0, 0, 0, 0.5);
 		}
 
 		.header {
@@ -158,6 +179,66 @@
 			height: 18px;
 		}
 
+		.dialog {
+			position: absolute;
+			left: 50%; 
+			top: 50%;
+			width: 480px;
+			transform: translate(-50%, -50%);
+			pointer-events: all;
+			border-radius: 5px;
+			background: hsla(0, 0%, 20%, 0.3);
+			border: 2px solid hsla(0, 0%, 100%, 0.2);
+			margin-bottom: 5px;
+			text-align: center;
+			overflow: hidden;
+		}
+
+		.dialog-header {
+			padding: 6px;
+			background: hsla(0, 0%, 20%, 0.4);
+		}
+
+		.dialog-close {
+			position: absolute;
+			right: 5px;
+			top: 5px;
+			cursor: pointer;
+		}
+
+		.dialog-close:not(:active):hover {
+			color: red;
+		}
+
+		.dialog-content {
+			padding: 5px;
+			text-align: center;
+			overflow-y: auto;
+			flex: 1;
+			margin: 5px;
+			height: 300px;
+		}
+
+		.preview {
+			display: inline-block;
+			font-size: 50px;
+			width: 1em;
+			height: 1em;
+			margin: 3px;
+			cursor: pointer;
+			background: hsla(0, 0%, 20%, 0.5);
+			image-rendering: pixelated;
+		}
+
+		.preview:active {
+			box-shadow: 0 0 0 1px #fff;
+		}
+
+		.disabled {
+			opacity: 0.7;
+			pointer-events: none;
+		}
+
 	</style>
 </head>
 <body>
@@ -167,7 +248,7 @@
 		<div class="header">
 			<div class="title">Conv Neural Network LOL</div>
 			<div>by Chu Won XD</div>
-			<div>jus4randi<3</div>
+			<div>jus4landi<3</div>
 		</div>
 		<div class="settings">
 			<div class="info">convolutional neural net from scratch in js moment. training 1 epoch takes 30mins on a 2021 $300 lappy wappy xp xp. drag to orbit, hold shift/ctrl to pan, wheel to zoom.</div>
