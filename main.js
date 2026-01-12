@@ -877,6 +877,7 @@ function initObjects() {
 		switch (layer.type) {
 			case 'Input':
 				addBoxes(layer.size, layer.depth);
+				layer.outputSize = layer.size;
 				break;
 
 			case 'Conv':
@@ -924,7 +925,11 @@ function initObjects() {
 	if (boxes.length > 0) {
 		const centerZ = (boxes[boxes.length - 1][2] + boxes[0][2]) / 2;
 		for (const box of boxes) {
-			box[2] = box[2] - centerZ;
+			box[2] -= centerZ;
+		}
+
+		for (const layer of layers) {
+			layer.z -= centerZ;
 		}
 
 		for (const item of texts) {
@@ -1223,120 +1228,7 @@ function drawHud(ctx) {
 			}
 		}
 	} else {
-		const r = getScreenSpaceSize() * H;
-		const offset = r + 10;
-
-		for (const item of texts) {
-			const p = project2(...item.pos);
-			if (p) {
-				ctx.textBaseline = 'bottom';
-				ctx.textAlign = 'center';
-				ctx.fillStyle = colors.label;
-				ctx.fillText(item.text, p[0] * W, p[1] * H - 4.666);
-			}
-		}
-
-		const outputLayer = layers[layers.length - 1];
-
-		for (let i = 0; i < outputLayer.outputLength; i++) {
-			const p = project2(...boxes[outputLayer.offset + i]);
-			if (p) {
-				const [x, y] = p;
-				const dir = x > 0.5 ? 1 : -1;
-				ctx.save();
-				ctx.translate(x * W, y * H);
-				ctx.textBaseline = 'middle';
-				ctx.textAlign = x > 0.5 ? 'left' : 'right';
-				ctx.fillStyle = colors.label;
-				ctx.fillText(i, dir * offset, 0);
-
-				if (prediction && predictT > 0.99) {
-					ctx.textAlign = x < 0.5 ? 'left' : 'right';
-					ctx.fillStyle = colors.activation;
-					ctx.fillText(prediction.probs[i].toFixed(2), -dir * offset, 0);
-
-					if (i === prediction.result) {
-						ctx.scale(dir, 1);
-						ctx.translate(offset + 15 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
-						ctx.beginPath();
-						ctx.moveTo(0, 0);
-						ctx.lineTo(15, 12);
-						ctx.lineTo(15, 5);
-						ctx.lineTo(35, 5);
-						ctx.lineTo(35, -5);
-						ctx.lineTo(15, -5);
-						ctx.lineTo(15, -12);
-						ctx.closePath();
-						ctx.fillStyle = getHoverColor();
-						ctx.fill();
-					}
-				}
-
-				ctx.restore();
-			}
-		}
-
-		if (picked) block: {
-			const projectedPoints = [];
-			for (const point of picked.points) {
-				const p = project(...point);
-				if (p[2] < 0 || p[2] > 1) break;
-				projectedPoints.push(p);
-			}
-
-			if (projectedPoints.length < picked.points.length) break block;
-
-			ctx.save();
-			ctx.beginPath();
-			for (const [x, y] of projectedPoints) {
-				ctx.lineTo(x * W, y * H);
-			}
-			ctx.closePath();
-
-			ctx.fillStyle = `#fff`;
-			const t = (Math.sin(now / 100) * 0.5 + 0.5);
-			ctx.globalAlpha = t * 0.069 + 0.1;
-			ctx.fill();
-			ctx.globalAlpha = 1;
-			ctx.lineWidth = 2;
-			ctx.strokeStyle = '#fff';
-			ctx.stroke();
-
-			ctx.save();
-			ctx.clip();
-
-			const z = picked.points[0][2];
-			const r = Math.abs(picked.points[0][0]) * 0.69969;
-
-			ctx.beginPath()
-			for (let i = 0; i < 5; i++) {
-				const a = PI2 * i / 2.5 + now / 2666 + picked.i / picked.layer.depth * 2.666;
-				const [x, y] = project(Math.cos(a) * r, Math.sin(a) * r, z);
-				ctx.lineTo(x * W, y * H);
-			}
-			ctx.closePath();
-			ctx.globalAlpha = 0.0555 + t * 0.0666;
-			ctx.lineWidth = 8.555;
-			ctx.stroke();
-
-			ctx.restore();
-
-			const size = 90;
-			ctx.translate(picked.x * W, picked.y * H - 10 - size);
-
-			if (picked.image) {
-				ctx.imageSmoothingEnabled = false;
-				ctx.drawImage(picked.image, -size / 2, 0, size, size);
-			}
-
-			ctx.translate(0, -5);
-			ctx.fillStyle = colors.label;
-			ctx.textAlign = 'center';
-			ctx.textBaseline = 'bottom';
-			ctx.fillText(picked.name, 0, 0);
-
-			ctx.restore();
-		}
+		drawNetworkHud(ctx, W, H);
 	}
 
 	if (666 && Math.hypot(cx - ropePos[0], cy - ropePos[1], cz - ropePos[2]) < 100) block: {
@@ -1518,6 +1410,215 @@ function drawHud(ctx) {
 	ctx.restore();
 }
 
+function drawNetworkHud(ctx, W, H) {
+	const r = getScreenSpaceSize() * H;
+	const offset = r + 10;
+
+	for (const item of texts) {
+		const p = project2(...item.pos);
+		if (p) {
+			ctx.textBaseline = 'bottom';
+			ctx.textAlign = 'center';
+			ctx.fillStyle = colors.label;
+			ctx.fillText(item.text, p[0] * W, p[1] * H - 4.666);
+		}
+	}
+
+	const outputLayer = layers[layers.length - 1];
+
+	for (let i = 0; i < outputLayer.outputLength; i++) {
+		const p = project2(...boxes[outputLayer.offset + i]);
+		if (p) {
+			const [x, y] = p;
+			const dir = x > 0.5 ? 1 : -1;
+			ctx.save();
+			ctx.translate(x * W, y * H);
+			ctx.textBaseline = 'middle';
+			ctx.textAlign = x > 0.5 ? 'left' : 'right';
+			ctx.fillStyle = colors.label;
+			ctx.fillText(i, dir * offset, 0);
+
+			if (prediction && predictT > 0.99) {
+				ctx.textAlign = x < 0.5 ? 'left' : 'right';
+				ctx.fillStyle = colors.activation;
+				ctx.fillText(prediction.probs[i].toFixed(2), -dir * offset, 0);
+
+				if (i === prediction.result) {
+					ctx.scale(dir, 1);
+					ctx.translate(offset + 15 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
+					ctx.beginPath();
+					ctx.moveTo(0, 0);
+					ctx.lineTo(15, 12);
+					ctx.lineTo(15, 5);
+					ctx.lineTo(35, 5);
+					ctx.lineTo(35, -5);
+					ctx.lineTo(15, -5);
+					ctx.lineTo(15, -12);
+					ctx.closePath();
+					ctx.fillStyle = getHoverColor();
+					ctx.fill();
+				}
+			}
+
+			ctx.restore();
+		}
+	}
+
+	let kernelN = Date.now() / 555;
+	const t = Math.min(1, (kernelN % 1) / 0.3);
+	kernelN = Math.floor(kernelN);
+
+	for (let i = 1; i < layers.length; i++) {
+		const layer = layers[i];
+		const ks = layer.kernelSize;
+		if (!ks) continue;
+		
+		let prevLayer = layers[i - 1];
+		if (prevLayer.type === 'Activation') prevLayer = layers[i - 2];
+
+		const outputSize = layer.outputSize;
+		const inputSize = prevLayer.outputSize;
+		
+		let nx = kernelN % outputSize;
+		let ny = Math.floor(kernelN / outputSize) % outputSize;
+
+		if (nx < outputSize - 1) {
+			nx += t;
+			if (ny % 2 === 1) nx = outputSize - 1 - nx;
+		} else if (ny < outputSize - 1) {
+			if (ny % 2 === 1) nx = outputSize - 1 - nx;
+			ny += t;
+		}
+		
+		let sx = nx;
+		let sy = ny;
+		let ex = sx;
+		let ey = sy;
+		if (layer.type === 'MaxPool') {
+			sx *= ks;
+			sy *= ks;
+			ex = sx + ks - 1;
+			ey = sy + ks - 1;
+		} else if (layer.type === 'Conv') {
+			ex += ks - 1;
+			ey += ks - 1;
+		}
+
+		const kernelZ = boxes[layer.offset - 1][2];
+
+		const kernelPoints = projectPoints([
+			[getCoord(sx, inputSize) - 0.5, -getCoord(sy, inputSize) + 0.5, kernelZ], 
+			[getCoord(ex, inputSize) + 0.5, -getCoord(sy, inputSize) + 0.5, kernelZ], 
+			[getCoord(ex, inputSize) + 0.5, -getCoord(ey, inputSize) - 0.5, kernelZ], 
+			[getCoord(sx, inputSize) - 0.5, -getCoord(ey, inputSize) - 0.5, kernelZ]
+		]);
+
+		ctx.beginPath();
+		if (kernelPoints) {
+			for (const [x, y] of kernelPoints) {
+				ctx.lineTo(x * W, y * H);
+			}
+			ctx.lineTo(kernelPoints[0][0] * W, kernelPoints[0][1] * H);
+		}
+
+		const neuronX = getCoord(nx, outputSize);
+		const neuronY = -getCoord(ny, outputSize);
+		const neuronZ = layer.z - 0.5;
+
+		const neuronPoints = projectPoints([
+			[neuronX - 0.5, neuronY + 0.5, neuronZ], 
+			[neuronX + 0.5, neuronY + 0.5, neuronZ], 
+			[neuronX + 0.5, neuronY - 0.5, neuronZ], 
+			[neuronX - 0.5, neuronY - 0.5, neuronZ]
+		]);
+
+		if (neuronPoints) {
+			ctx.moveTo(neuronPoints[0][0] * W, neuronPoints[0][1] * H);
+			for (const [x, y] of neuronPoints) {
+				ctx.lineTo(x * W, y * H);
+			}
+			ctx.lineTo(neuronPoints[0][0] * W, neuronPoints[0][1] * H);
+
+			if (kernelPoints) {
+				for (let i = 0; i < kernelPoints.length; i++) {
+					ctx.moveTo(kernelPoints[i][0] * W, kernelPoints[i][1] * H);
+					ctx.lineTo(neuronPoints[i][0] * W, neuronPoints[i][1] * H);
+				}
+			}
+		}
+
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = `#999`;
+		ctx.stroke();
+	}
+
+	if (picked) block: {
+		const points = projectPoints(picked.points);
+		if (!points) break block;
+
+		ctx.save();
+		ctx.beginPath();
+		for (const [x, y] of points) {
+			ctx.lineTo(x * W, y * H);
+		}
+		ctx.closePath();
+
+		ctx.fillStyle = `#fff`;
+		const t = (Math.sin(now / 100) * 0.5 + 0.5);
+		ctx.globalAlpha = t * 0.069 + 0.1;
+		ctx.fill();
+		ctx.globalAlpha = 1;
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = '#fff';
+		ctx.stroke();
+
+		ctx.save();
+		ctx.clip();
+
+		const z = picked.points[0][2];
+		const r = Math.abs(picked.points[0][0]) * 0.69969;
+
+		ctx.beginPath()
+		for (let i = 0; i < 5; i++) {
+			const a = PI2 * i / 2.5 + now / 2666 + picked.i / picked.layer.depth * 2.666;
+			const [x, y] = project(Math.cos(a) * r, Math.sin(a) * r, z);
+			ctx.lineTo(x * W, y * H);
+		}
+		ctx.closePath();
+		ctx.globalAlpha = 0.0555 + t * 0.0666;
+		ctx.lineWidth = 8.555;
+		ctx.stroke();
+
+		ctx.restore();
+
+		const size = 90;
+		ctx.translate(picked.x * W, picked.y * H - 10 - size);
+
+		if (picked.image) {
+			ctx.imageSmoothingEnabled = false;
+			ctx.drawImage(picked.image, -size / 2, 0, size, size);
+		}
+
+		ctx.translate(0, -5);
+		ctx.fillStyle = colors.label;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'bottom';
+		ctx.fillText(picked.name, 0, 0);
+
+		ctx.restore();
+	}
+}
+
+function projectPoints(points) {
+	const result = [];
+	for (const point of points) {
+		const p = project(...point);
+		if (p[2] < 0 || p[2] > 1) return;
+		result.push(p);
+	}
+	return result;
+}
+
 let pointerX = 0;
 let pointerY = 0;
 document.onmousemove = function (event) {
@@ -1583,11 +1684,13 @@ window.onmousemove = function (event) {
 	picked = null;
 
 	for (const layer of layers) {
+		if (layer.type !== 'Conv') continue;
+
 		let minZ = Infinity;
 
 		for (let i = 0; i < layer.depth; i++) {
-			const s = layer.outputSize * gap;
-			const z = boxes[layer.offset][2] + i * 2.666;
+			const s = layer.outputSize * gap + 0.5;
+			const z = layer.z + i * depthGap;
 
 			const points = [
 				[-s, s, z], 
@@ -2070,7 +2173,7 @@ function getHoverColor() {
 function getScreenSpaceSize() {
 	const a = project(1, 1, 1);
 	const b = project(0, 0, 0);
-	return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
 function project(x, y, z) {
