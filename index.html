@@ -233,6 +233,7 @@
 		.preview canvas {
 			width: 100%;
 			height: 100%;
+			image-rendering: pixelated;
 		}
 
 		.preview:active {
@@ -252,6 +253,7 @@
 			padding: 4px;
 			border-radius: 4px;
 			transition: 0.25s all;
+			pointer-events: none;
 		}
 
 		.preview:hover > .tooltip {

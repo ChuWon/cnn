@@ -755,7 +755,10 @@ function backward(targets, predictions) {
 
 const ignoreMap = {
 	x: 1, 
-	maxIndex: 1
+	maxIndex: 1, 
+	startParams: 1, 
+	dirX: 1, 
+	dirY: 1
 };
 
 function encode(object) {

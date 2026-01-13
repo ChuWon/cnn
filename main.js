@@ -2282,6 +2282,8 @@ function BrowseUI() {
 	</div>`);
 	uiEl.appendChild(el);
 
+	el.onmousemove = overlayEl.onmousemove = event => event.stopPropagation();
+
 	const itemsPerPage = 200;
 	let filterDigit = -1;
 
