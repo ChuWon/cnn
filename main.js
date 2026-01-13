@@ -2266,7 +2266,14 @@ function BrowseUI() {
 			<div>nothing to display xp...</div>
 		</div>
 		<div class="row" style="margin: 5px; margin-top: 0;">
-			<div>click to prelict XD</div>
+			<div>Digit</div>
+			<select class="numbers" style="width: 60px;">${(function () {
+				let html = '';
+				for (let i = -1; i < 10; i++) {
+					html += `<option value="${i}">${i === -1 ? 'All' : i}</option>`;
+				}
+				return html;
+			})()}</select>
 			<select class="pages" style="margin-left: auto;"></select>
 			<div class="page-count">of 0</div>
 			<div class="btn prev-btn disabled">prev</div>
@@ -2276,6 +2283,7 @@ function BrowseUI() {
 	uiEl.appendChild(el);
 
 	const itemsPerPage = 200;
+	let filterDigit = -1;
 
 	overlayEl.onclick = el.querySelector('.dialog-close').onclick = function () {
 		setVisible(false);
@@ -2284,6 +2292,13 @@ function BrowseUI() {
 	const contentEl = el.querySelector('.dialog-content');
 	const pageCountEl = el.querySelector('.page-count');
 	const pagesEl = el.querySelector('.pages');
+
+	const numbersEl = el.querySelector('.numbers');
+	numbersEl.value = filterDigit;
+	numbersEl.onchange = function () {
+		filterDigit = parseInt(this.value);
+		reqContent();
+	}
 
 	const prevBtnEl = el.querySelector('.prev-btn');
 	const nextBtnEl = el.querySelector('.next-btn');
@@ -2334,18 +2349,26 @@ function BrowseUI() {
 
 		pageCountEl.innerText = `of ${pageCount}`;
 
-		const text = data.items.map(item => item.y).join('');
-		const matches = text.matchAll(/3301|666|1102|2003|2020/g);
-	
 		for (let i = 0; i < data.items.length; i++) {
 			const item = data.items[i];
-			const canvas = createImage(item.x, inputSize);
+
+			const canvas = fromHtml(`<div class="preview">
+				<div class="tooltip">#${item.id}</div>
+			</div>`);
+			canvas.appendChild(createImage(item.x, inputSize));
 			canvas.className = 'preview';
 			canvas.x = item.x;
 			canvas.onclick = onClick;
 			contentEl.appendChild(canvas);
 		}
 
+		filterDigit === -1 && highlightNumbers(data);
+	}
+
+	function highlightNumbers(data) {
+		const text = data.items.map(item => item.y).join('');
+		const matches = text.matchAll(/3301|666|1102|2003|2020/g);
+		
 		for (const match of matches) {
 			const l = match[0].length;
 			for (let i = 0; i < l; i++) {
@@ -2362,6 +2385,7 @@ function BrowseUI() {
 	function reqContent() {
 		worker.postMessage({
 			id: 'dataset', 
+			filterDigit, 
 			start: currPage * itemsPerPage, 
 			count: itemsPerPage
 		});

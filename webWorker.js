@@ -572,13 +572,14 @@ function parse(text) {
 		}
 
 		data.push({
+			id: data.length, 
 			x: new Float32Array(items), 
 			y: label
 		});
 	}
 
 	text = data.map(item => item.y).join('');
-	const matches = text.matchAll(/3301|666|1102|2003|2020/g);
+	const matches = text.matchAll(/3301|666|1102|2003|2020|/g);
 
 	for (const match of matches) {
 		console.log(`found ${match[0]} at image #${match.index} on page #${Math.floor(match.index / 200) + 1}`);
@@ -1010,14 +1011,17 @@ onmessage = function (event) {
 			getLossLandscape(msg.x, msg.y);
 			break;
 
-		case 'dataset':
+		case 'dataset': {
+			const list = msg.filterDigit > -1 ? data.filter(item => item.y === msg.filterDigit) : data; 
+			const start = msg.start >= list.length ? 0 : msg.start;
+
 			postMessage({
 				id: 'dataset', 
-				start: msg.start, 
-				items: data.slice(msg.start, msg.start + msg.count), 
-				totalCount: data.length
+				start, 
+				items: list.slice(start, start + msg.count), 
+				totalCount: list.length
 			});
-			break;
+		}	break;
 
 		default:
 			console.log(`Unknown msg id from parent: ${msg.id}`);
