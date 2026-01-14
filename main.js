@@ -1553,6 +1553,24 @@ function drawNetworkHud(ctx, W, H) {
 				ctx.lineTo(x * W, y * H);
 			}
 			ctx.lineTo(kernelPoints[0][0] * W, kernelPoints[0][1] * H);
+
+			const list = [
+				[0, 1, 3, 2], 
+				[0, 3, 1, 2]
+			];
+
+			for (let [a, b, c, d] of list) {
+				a = kernelPoints[a];
+				b = kernelPoints[b];
+				c = kernelPoints[c];
+				d = kernelPoints[d];
+
+				for (let i = 1; i < ks; i++) {
+					const f = i / ks;
+					ctx.moveTo(lerp(a[0], b[0], f) * W, lerp(a[1], b[1], f) * H);
+					ctx.lineTo(lerp(c[0], d[0], f) * W, lerp(c[1], d[1], f) * H);
+				}
+			}
 		}
 
 		const neuronX = getCoord(nx, outputSize);
