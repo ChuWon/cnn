@@ -2262,8 +2262,10 @@ function BrowseUI() {
 	const el = fromHtml(`<div class="dialog">
 		<div class="dialog-header">dataset explolal</div>
 		<div class="dialog-close">[x]</div>
-		<div class="dialog-content" style="display: grid; place-content: center;">
-			<div>nothing to display xp...</div>
+		<div class="wrapper" style="position: relative; flex: 1; margin: 5px;">
+			<div class="dialog-content status" style="display: grid; place-content: center;">
+				<div>nothing to display xp...</div>
+			</div>
 		</div>
 		<div class="row" style="margin: 5px; margin-top: 0;">
 			<div>Digit</div>
@@ -2291,7 +2293,9 @@ function BrowseUI() {
 		setVisible(false);
 	}
 
-	const contentEl = el.querySelector('.dialog-content');
+	const wrapperEl = el.querySelector('.wrapper');
+	const statusEl = el.querySelector('.status');
+
 	const pageCountEl = el.querySelector('.page-count');
 	const pagesEl = el.querySelector('.pages');
 
@@ -2334,12 +2338,27 @@ function BrowseUI() {
 		nextBtnEl.setClass('disabled', currPage >= pageCount - 1);
 	}
 
+	let lastPage = -1;
+
 	function setContent(data) {
-		contentEl.innerHTML = '';
-		contentEl.style.display = '';
-		
 		pageCount = Math.floor(data.totalCount / itemsPerPage);
 		currPage = Math.floor(data.start / itemsPerPage);
+
+		statusEl.style.visibility = 'hidden';
+
+		const contentEl = fromHtml(`<div class="dialog-content" style="position: absolute; top: 0; left: 0;"></div>`);
+		contentEl.t = contentEl.d = currPage > lastPage ? 1 : -1;
+
+		const lastEl = wrapperEl.lastElementChild
+		if (lastEl) {
+			lastEl.style.overflow = 'hidden';
+			if (lastEl.d !== contentEl.d) {
+				lastEl.d *= -1;
+			}
+		}
+
+		lastPage = currPage;
+		wrapperEl.appendChild(contentEl);
 
 		let html = '';
 		for (let i = 0; i < pageCount; i++) {
@@ -2364,17 +2383,15 @@ function BrowseUI() {
 			contentEl.appendChild(canvas);
 		}
 
-		filterDigit === -1 && highlightNumbers(data);
-	}
-
-	function highlightNumbers(data) {
-		const text = data.items.map(item => item.y).join('');
-		const matches = text.matchAll(/3301|666|1102|2003|2020/g);
-		
-		for (const match of matches) {
-			const l = match[0].length;
-			for (let i = 0; i < l; i++) {
-				contentEl.children[match.index + i].style.filter = 'invert(1)';
+		if (filterDigit === -1) {
+			const text = data.items.map(item => item.y).join('');
+			const matches = text.matchAll(/3301|666|1102|2003|2020/g);
+			
+			for (const match of matches) {
+				const l = match[0].length;
+				for (let i = 0; i < l; i++) {
+					contentEl.children[match.index + i].style.filter = 'invert(1)';
+				}
 			}
 		}
 	}
@@ -2397,7 +2414,20 @@ function BrowseUI() {
 	let t = 0;
 
 	function update() {
-		t = lerp(t, visible ? 1 : 0, getLerpFactor(0.2));
+		const f = getLerpFactor(0.2);
+		t = lerp(t, visible ? 1 : 0, f);
+
+		for (let i = wrapperEl.children.length - 1; i >= 0; i--) {
+			const el = wrapperEl.children[i];
+			if (el.t === undefined) continue;
+
+			const target = wrapperEl.lastElementChild === el ? 0 : -el.d;
+			el.t = lerp(el.t, target, f);
+			el.style.transform = `translateX(${el.t * 100}%)`;
+			if (target && el.t === target) {
+				el.remove();
+			}
+		}
 
 		el.style.transform = `translate(-50%, -50%) scale(${t})`;
 		el.style.opacity = overlayEl.style.opacity = t;

@@ -579,7 +579,7 @@ function parse(text) {
 	}
 
 	text = data.map(item => item.y).join('');
-	const matches = text.matchAll(/3301|666|1102|2003|2020|/g);
+	const matches = text.matchAll(/3301|666|1102|2003|2020/g);
 
 	for (const match of matches) {
 		console.log(`found ${match[0]} at image #${match.index} on page #${Math.floor(match.index / 200) + 1}`);
