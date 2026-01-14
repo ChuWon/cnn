@@ -443,16 +443,7 @@ function getAccuracy(targets, predictions, outputLength) {
 	let correct = 0;
 
 	for (let i = 0; i < targets.length; i += outputLength) {
-		let max = -Infinity;
-		let maxIndex = 0;
-		for (let j = 0; j < outputLength; j++) {
-			const prob = predictions[i + j];
-			if (prob > max) {
-				max = prob;
-				maxIndex = j;
-			}
-		}
-
+		const maxIndex = argmax(predictions, outputLength, i);
 		if (targets[i + maxIndex] === 1) {
 			correct++;
 		}
@@ -460,6 +451,19 @@ function getAccuracy(targets, predictions, outputLength) {
 
 	const n = targets.length / outputLength;
 	return correct / n * 100;
+}
+
+function argmax(list, length, offset = 0) {
+	let max = -Infinity;
+	let maxIndex = 0;
+	for (let i = 0; i < length; i++) {
+		const prob = list[offset + i];
+		if (prob > max) {
+			max = prob;
+			maxIndex = i;
+		}
+	}
+	return maxIndex;
 }
 
 function convolveXD() {
@@ -983,6 +987,14 @@ onmessage = function (event) {
 		case 'predict':
 			const x = msg.x || data[Math.floor(Math.random() * data.length)].x;
 			predict(x);
+			break;
+
+		case 'elPredict':
+			postMessage({
+				id: 'elPrediction', 
+				el: msg.el, 
+				y: argmax(forward(msg.x), outputLength)
+			});
 			break;
 
 		case 'checkpointData':

@@ -181,6 +181,11 @@ worker.onmessage = function (event) {
 			};
 		}	break;
 
+		case 'elPrediction':
+			const el = document.getElementById(msg.el);
+			el.innerText = `pred: ${msg.y}`;
+			break;
+
 		case 'lossCurve':
 			lossCurving = false;
 			if (msg.modelId !== modelId) break;
@@ -2299,6 +2304,8 @@ function BrowseUI() {
 	const pageCountEl = el.querySelector('.page-count');
 	const pagesEl = el.querySelector('.pages');
 
+	const accuracyEl = el.querySelector('.accuracy');
+
 	const numbersEl = el.querySelector('.numbers');
 	numbersEl.value = filterDigit;
 	numbersEl.onchange = function () {
@@ -2373,14 +2380,17 @@ function BrowseUI() {
 		for (let i = 0; i < data.items.length; i++) {
 			const item = data.items[i];
 
-			const canvas = fromHtml(`<div class="preview">
-				<div class="tooltip">#${item.id}</div>
+			const el = fromHtml(`<div class="preview">
+				<div class="tooltip">
+					<div>#${item.id}</div>
+					<div id="pred-${item.id}"></div>
+				</div>
 			</div>`);
-			canvas.appendChild(createImage(item.x, inputSize));
-			canvas.className = 'preview';
-			canvas.x = item.x;
-			canvas.onclick = onClick;
-			contentEl.appendChild(canvas);
+			el.appendChild(createImage(item.x, inputSize));
+			el.item = item;
+			el.onclick = onClick;
+			el.onmouseenter = onMouseEnter;
+			contentEl.appendChild(el);
 		}
 
 		if (filterDigit === -1) {
@@ -2396,8 +2406,16 @@ function BrowseUI() {
 		}
 	}
 
+	function onMouseEnter() {
+		worker.postMessage({
+			id: 'elPredict', 
+			el: `pred-${this.item.id}`, 
+			x: this.item.x
+		})
+	}
+
 	function onClick() {
-		userInput = this.x;
+		userInput = this.item.x;
 		predictT = 1;
 	}
 
