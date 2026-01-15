@@ -375,6 +375,8 @@ function updateLossLandscape() {
 	const lineData = [];
 	const normalData = [];
 
+	const vertexNormals = {};
+
 	const h = Math.floor(n / lossLandscapeLength) - 1;
 	
 	for (let i = 0, l = Math.min(points.length, lossLandscapeLength) - 1; i < l; i++) {
@@ -410,8 +412,53 @@ function updateLossLandscape() {
 					...n1, ...n1, ...n1, 
 					...n2, ...n2, ...n2
 				);
+
+				addVertexNormal(b, n1);
+				addVertexNormal(a, n1);
+				addVertexNormal(c, n1);
+
+				addVertexNormal(b, n2);
+				addVertexNormal(c, n2);
+				addVertexNormal(d, n2);
 			}
 		}
+	}
+
+	const vertexNormalData = new Float32Array(posData.length);
+
+	for (let i = 0; i < posData.length; i += 3) {
+		const key = vertexToKey(posData[i], posData[i + 1], posData[i + 2]);
+		const vn = vertexNormals[key];
+		const f = 1 / vn.count;
+		vertexNormalData[i] = vn.x * f;
+		vertexNormalData[i + 1] = vn.y * f;
+		vertexNormalData[i + 2] = vn.z * f;
+	}
+
+	function addVertexNormal(v, normal) {
+		const key = vertexToKey(v[0], v[1], v[2]);
+		let vn = vertexNormals[key];
+		if (!vn) {
+			vertexNormals[key] = vn = {
+				x: 0, 
+				y: 0, 
+				z: 0, 
+				count: 0
+			};
+		}
+
+		vn.x += normal[0];
+		vn.y += normal[1];
+		vn.z += normal[2];
+		vn.count++;
+	}
+
+	function vertexToKey(x, y, z) {
+		return `${toKey(x)},${toKey(y)},${toKey(z)}`;
+	}
+
+	function toKey(x) {
+		return Math.floor(x * 1e5);
 	}
 
 	lossLandscape = {
@@ -419,6 +466,7 @@ function updateLossLandscape() {
 		pointBuffer: createBuffer(pointData), 
 		posBuffer: createBuffer(new Float32Array(posData)), 
 		normalBuffer: createBuffer(new Float32Array(normalData)), 
+		vertexNormalBuffer: createBuffer(vertexNormalData), 
 		intensityBuffer: createBuffer(new Float32Array(intensityData)), 
 		vertexCount: posData.length / 3, 
 		lineBuffer: createBuffer(new Float32Array(lineData)), 
@@ -734,25 +782,38 @@ attribute vec3 normal;
 
 uniform mat4 projectionMatrix;
 uniform mat4 viewMatrix;
-uniform vec3 lightPos;
 
-varying vec3 vColor;
+varying vec3 vPos;
+varying vec3 vViewPos;
+varying vec3 vNormal;
+varying float vIntensity;
 
 void main() {
-	gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+	vec4 p = viewMatrix * vec4(position, 1.0);
+	gl_Position = projectionMatrix * p;
 
-	float light = max(0.0, dot(normalize(lightPos - position), normalize(normal))) * 0.3 + 0.7;
-	vColor = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), intensity) * light;
+	vPos = position;
+	vViewPos = p.xyz;
+	vNormal = normal;
+	vIntensity = intensity;
 }
 
 `, `
 
 precision mediump float;
 
-varying vec3 vColor;
+uniform vec3 lightPos;
+
+varying vec3 vPos;
+varying vec3 vViewPos;
+varying vec3 vNormal;
+varying float vIntensity;
 
 void main() {
-	gl_FragColor = vec4(vColor, 1.0);
+	float spec = pow(max(dot(reflect(normalize(vViewPos - lightPos), vNormal), -normalize(vViewPos)), 0.0), 0.7);
+	float light = max(0.0, dot(normalize(lightPos - vPos), vNormal)) * 0.7 + 0.4 + spec * 0.5;
+	vec3 color = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity) * light;
+	gl_FragColor = vec4(color, 1.0);
 }
 
 `);
@@ -783,7 +844,7 @@ void main() {
 
 `);
 
-const lightPos = [-50, 50, 69];
+const lightPos = [-420, 666, 699.69];
 
 const mesh = {
 	indices: [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
@@ -1219,6 +1280,11 @@ function resetGraphs() {
 
 initGraphs();
 
+const troll = new Image();
+troll.src = 'troll.png';
+troll.onload = () => console.log('💩💩💩💩 SIGMA IS HERE 💩💩💩💩');
+troll.onerror = () => console.log(`💩💩💩💩 pooping rn 💩💩💩💩`);
+
 function drawHud(ctx) {
 	const canvas = ctx.canvas;
 	const scale = Math.max(canvas.width / 1366, canvas.height / 768);
@@ -1241,7 +1307,7 @@ function drawHud(ctx) {
 		ctx.textBaseline = 'bottom';
 
 		for (let i = 0; i < lossLandscape.points.length; i++) {
-			if (depth > 70 && ((i % lossLandscapeLength) + Math.floor(i / lossLandscapeLength) % 2) % 2 === 0) continue;
+			if (depth > 70 && ((i % lossLandscapeLength) + Math.floor(i / lossLandscapeLength) % 3) % 3 !== 0) continue;
 
 			const loss = lossLandscapePoints[i];
 			const p = project2(...lossLandscape.points[i]);
@@ -1264,6 +1330,8 @@ function drawHud(ctx) {
 	} else {
 		drawNetworkHud(ctx, W, H);
 	}
+
+	// cosmetics
 
 	if (666 && Math.hypot(cx - ropePos[0], cy - ropePos[1], cz - ropePos[2]) < 100) block: {
 		const p = project2(ropePos[0], ropePos[1] - 12, ropePos[2]);
@@ -1296,6 +1364,64 @@ function drawHud(ctx) {
 		ctx.fillText('फ: लंडी लंडी लंडी बड़ी लंडी बनो XD XD', 0, 28 + 13);
 
 		ctx.restore();
+	}
+
+	const p = project2(...lightPos);
+	if (p) block: {
+		const x = p[0] * W;
+		const y = p[1] * H;
+
+		ctx.save();
+		ctx.translate(x, y);
+		ctx.rotate((now / 1000) % PI2);
+
+		const t = Math.sin(now / 200) * 0.5 + 0.5;
+
+		ctx.beginPath();
+		ctx.arc(0, 0, 10, 0, PI2);
+		ctx.strokeStyle = ctx.fillStyle = '#fff';
+		ctx.globalAlpha = 0.1;
+		ctx.fill();
+		ctx.globalAlpha = 1;
+		ctx.stroke();
+
+		ctx.beginPath();
+
+		const n = 10;
+		const a = PI2 / n;
+		for (let i = 0; i < n; i++) {
+			ctx.rotate(a);
+			ctx.moveTo(20, 0);
+			ctx.lineTo(27 + (i % 2 === 0 ? 1 - t : t) * 5, 0);
+		}
+		ctx.lineCap = 'round';
+		ctx.lineWidth = 2;
+		ctx.stroke();
+
+		ctx.restore();
+
+		if (troll.width > 0 && Math.hypot(x * scale - pointerX, y * scale - pointerY) < 10 * scale) {
+			ctx.save();
+			ctx.translate(W / 2, H / 2);
+
+			ctx.beginPath();
+			ctx.moveTo(2.666, 100);
+			ctx.lineTo(2.666, 2666 * 0.2666);
+			ctx.lineWidth = 5;
+			ctx.fillStyle = ctx.strokeStyle = `#f9f9f9`;
+			ctx.stroke();
+
+			ctx.filter = 'grayscale(1) invert(1)';
+			ctx.drawImage(troll, -100, -100, 200, 200);
+			ctx.filter = 'none';
+			ctx.textBaseline = 'bottom';
+			ctx.textAlign = 'center';
+			ctx.font = `normal 12px monospace`;
+			
+			ctx.fillText(iCodedThisFunctionLOLXDIAmLandi() + ' v hav Dcided ur fate :p ' + iCodedThisFunctionLOLXDIAmLandi(), 0, -115);
+
+			ctx.restore();
+		}
 	}
 
 	// graph
@@ -2126,7 +2252,7 @@ function renderLossLandscape() {
 		gl.enableVertexAttribArray(planeProgram.attributes.position);
 		gl.vertexAttribPointer(planeProgram.attributes.position, 3, gl.FLOAT, false, 0, 0);
 
-		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.normalBuffer);
+		gl.bindBuffer(gl.ARRAY_BUFFER, lossLandscape.vertexNormalBuffer);
 		gl.enableVertexAttribArray(planeProgram.attributes.normal);
 		gl.vertexAttribPointer(planeProgram.attributes.normal, 3, gl.FLOAT, false, 0, 0);
 
@@ -2478,4 +2604,8 @@ function BrowseUI() {
 	this.reqContent = reqContent;
 	this.setVisible = setVisible;
 	this.setContent = setContent;
+}
+
+function iCodedThisFunctionLOLXDIAmLandi() {
+	return Array.from({ length: 10 }, () => Math.random().toString(32).slice(2, 10)).join('⛧');
 }
