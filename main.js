@@ -810,8 +810,11 @@ varying vec3 vNormal;
 varying float vIntensity;
 
 void main() {
-	float spec = pow(max(dot(reflect(normalize(vViewPos - lightPos), vNormal), -normalize(vViewPos)), 0.0), 0.7);
-	float light = max(0.0, dot(normalize(lightPos - vPos), vNormal)) * 0.7 + 0.4 + spec * 0.5;
+	vec3 viewDir = -normalize(vViewPos);
+	float spec = pow(max(dot(reflect(normalize(vViewPos - lightPos), vNormal), viewDir), 0.0), 0.7);
+	float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 7.0);
+	float diffuse = max(0.0, dot(normalize(lightPos - vPos), vNormal));
+	float light = 0.3 + diffuse * 0.7 + spec * 0.5 + fresnel * 0.22;
 	vec3 color = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity) * light;
 	gl_FragColor = vec4(color, 1.0);
 }
@@ -2544,7 +2547,7 @@ function BrowseUI() {
 			for (const match of matches) {
 				const l = match[0].length;
 				for (let i = 0; i < l; i++) {
-					contentEl.children[match.index + i].style.filter = 'invert(1)';
+					contentEl.children[match.index + i].classList.add('highlight');
 				}
 			}
 		}
