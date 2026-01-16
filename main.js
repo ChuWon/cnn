@@ -2012,6 +2012,7 @@ function createRope() {
 const browseUI = new BrowseUI();
 
 let showT = 0;
+let shakeT = 0;
 
 let projectionMatrix, viewMatrix;
 
@@ -2051,6 +2052,7 @@ function update() {
 	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
 
 	dragT = lerp(dragT, dragging ? 1 : 0, getLerpFactor(0.2));
+	shakeT = lerp(shakeT, Math.abs(cx) > 2500 || Math.abs(cy) > 2500 || Math.abs(cz) > 2500 ? 1 : 0, getLerpFactor(0.1));
 
 	browseUI.update();
 
@@ -2108,10 +2110,18 @@ function update() {
 }
 
 function render() {
-	const cosX = Math.cos(rx);
-	const sinX = Math.sin(rx);
-	const cosY = Math.cos(ry);
-	const sinY = Math.sin(ry);
+	let rotX = rx;
+	let rotY = ry;
+
+	if (shakeT > 0) {
+		rotX += Math.sin(now / 150) * 0.1 * shakeT;
+		rotY += Math.sin(now / 300) * Math.cos(now / 120) * 0.15 * shakeT;
+	}
+
+	const cosX = Math.cos(rotX);
+	const sinX = Math.sin(rotX);
+	const cosY = Math.cos(rotY);
+	const sinY = Math.sin(rotY);
 
 	viewMatrix = [
 		cosY, sinY * -sinX, sinY * cosX, 0, 
@@ -2142,7 +2152,15 @@ function render() {
 
 	gl.viewport(0, 0, canvas.width, canvas.height);
 
-	gl.clearColor(0, 0, 0, 1);
+	const chai = `-. .- .-. . -. -.. .-. / -.. .- .- -- --- -.. .- .-. .- -.. .- .- ... / -- --- -.. . . / -.- .- / .--- .- .-.. -.. / .... . . / -. .. -.. .... .- -. / .... --- .-.-.- / -- --- -.. . . / -... .- .... ..- - / -... --- --- -.. .... . / .... .- .. -. .-.-.- / -... ..- -.. .... .- .- .--. . / ... . / -- .-. - -.-- ..- .-.-.-`;
+	const char666 = chai[Math.floor((now / 76e3 % 1) * chai.length)];
+	const r = {
+		'-': 0.8, 
+		'.': 0, 
+		' ': 0.1, 
+		'/': 0.25
+	}[char666] || Math.random();
+	gl.clearColor(r, r, r, 1);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
 	renderBg();
