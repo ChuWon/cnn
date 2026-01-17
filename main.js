@@ -587,15 +587,26 @@ function SketchUI() {
 	let path;
 	canvas.onmousedown = function (event) {
 		if (event.button === 0 && !path) {
-			path = [getPointer(event)];
-			paths.push(path);
-			draw();
-
-			canAutoPredict = false;
-			predict(canvas);
+			onPointerStart(event);
 		}
 	}
-	window.addEventListener('mousemove', event => {
+	window.addEventListener('mousemove', onPointerMove);
+	window.addEventListener('mouseup', event => {
+		if (event.button === 0) {
+			path = null;
+		}
+	});
+
+	function onPointerStart(event) {
+		path = [getPointer(event)];
+		paths.push(path);
+		draw();
+
+		canAutoPredict = false;
+		predict(canvas);
+	}
+
+	function onPointerMove(event) {
 		if (path) {
 			path.push(getPointer(event));
 			draw();
@@ -603,12 +614,18 @@ function SketchUI() {
 			canAutoPredict = false;
 			predict(canvas);
 		}
-	});
-	window.addEventListener('mouseup', event => {
-		if (event.button === 0) {
-			path = null;
+	}
+
+	canvas.onTouchStart = function (touch) {
+		if (!path) {
+			onPointerStart(touch);
+			const id = touch.identifier;
+			onTouchMove[id] = onPointerMove;
+			onTouchEnd[id] = function () {
+				path = null;
+			}
 		}
-	});
+	}
 
 	function draw() {
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -678,7 +695,7 @@ gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
 const program = createProgram(`
 
-precision mediump float;
+precision highp float;
 
 attribute vec3 position;
 attribute vec3 normal;
@@ -703,7 +720,7 @@ void main() {
 
 `, `
 
-precision mediump float;
+precision highp float;
 
 varying vec3 vColor;
 
@@ -715,7 +732,7 @@ void main() {
 
 const lineProgram = createProgram(`
 
-precision mediump float;
+precision highp float;
 
 attribute vec3 position;
 attribute vec3 worldPos;
@@ -731,7 +748,7 @@ void main() {
 
 `, `
 
-precision mediump float;
+precision highp float;
 
 void main() {
 	gl_FragColor = vec4(0.2);
@@ -741,7 +758,7 @@ void main() {
 
 const bgProgram = createProgram(`
 
-precision mediump float;
+precision highp float;
 
 attribute vec3 position;
 
@@ -758,7 +775,7 @@ void main() {
 
 `, `
 
-precision mediump float;
+precision highp float;
 
 uniform sampler2D map;
 
@@ -774,7 +791,7 @@ void main() {
 
 const planeProgram = createProgram(`
 
-precision mediump float;
+precision highp float;
 
 attribute vec3 position;
 attribute float intensity;
@@ -800,7 +817,7 @@ void main() {
 
 `, `
 
-precision mediump float;
+precision highp float;
 
 uniform vec3 lightPos;
 
@@ -823,7 +840,7 @@ void main() {
 
 const planeLineProgram = createProgram(`
 
-precision mediump float;
+precision highp float;
 
 attribute vec3 position;
 
@@ -837,7 +854,7 @@ void main() {
 
 `, `
 
-precision mediump float;
+precision highp float;
 
 uniform vec4 color;
 	
@@ -1827,27 +1844,22 @@ const minDepth = 2;
 const maxDepth = 130;
 
 canvas.onwheel = function (event) {
-	nDepth *= (event.deltaY > 0 ? 1.1 : 0.9);
-	nDepth = Math.max(minDepth, Math.min(nDepth, maxDepth));
+	zoom(event.deltaY > 0 ? 1.1 : 0.9);
 }
 
 canvas.oncontextmenu = () => false;
 
-let picked;
-
-let lastPoint;
-canvas.onmousedown = function (event) {
-	if (event.button === 0) {
-		lastPoint = [event.clientX, event.clientY];
-	}
+function zoom(f) {
+	nDepth *= f;
+	nDepth = Math.max(minDepth, Math.min(nDepth, maxDepth));
 }
-window.onmousemove = function (event) {
-	const pointer = [event.clientX, event.clientY];
-	if (lastPoint) {
-		let dx = -(pointer[0] - lastPoint[0]);
-		let dy = pointer[1] - lastPoint[1];
+
+function onPointerMove(pointer, pan) {
+	if (lastPointer) {
+		let dx = -(pointer[0] - lastPointer[0]);
+		let dy = pointer[1] - lastPointer[1];
 		
-		if (event.shiftKey || event.ctrlKey) {
+		if (pan) {
 			dx *= 0.3;
 			dy *= 0.3;
 			ncx += viewMatrix[0] * dx + viewMatrix[1] * dy;
@@ -1859,8 +1871,21 @@ window.onmousemove = function (event) {
 			nrx = Math.max(-Math.PI / 2, Math.min(nrx, Math.PI / 2));
 		}
 
-		lastPoint = pointer;
+		lastPointer = pointer;
 	}
+}
+
+let picked;
+
+let lastPointer;
+canvas.onmousedown = function (event) {
+	if (event.button === 0) {
+		lastPointer = [event.clientX, event.clientY];
+	}
+}
+window.onmousemove = function (event) {
+	const pointer = [event.clientX, event.clientY];
+	onPointerMove(pointer, event.shiftKey || event.ctrlKey);	
 
 	picked = null;
 
@@ -1921,7 +1946,87 @@ window.onmousemove = function (event) {
 }
 window.onmouseup = function (event) {
 	if (event.button === 0) {
-		lastPoint = null;
+		lastPointer = null;
+	}
+}
+
+const onTouchMove = {};
+const onTouchEnd = {};
+
+window.ontouchstart = function (event) {
+	for (const touch of event.changedTouches) {
+		touch.target.onTouchStart?.(touch, event);
+	}
+}
+
+window.addEventListener('touchmove', function (event) {
+	for (const touch of event.changedTouches) {
+		const handler = onTouchMove[touch.identifier];
+		if (handler) {
+			event.preventDefault();
+			handler(touch, event);
+		}
+	}
+}, { passive: false });
+
+window.ontouchend = function (event) {
+	for (const touch of event.changedTouches) {
+		const id = touch.identifier;
+		onTouchEnd[id]?.(touch, event);
+		delete onTouchEnd[id];
+		delete onTouchMove[id];
+	}
+}
+
+const touches = [];
+let lastTouchDistance = 0;
+
+function getTouchPointer() {
+	let x = 0;
+	let y = 0;
+	for (const touch of touches) {
+		x += touch.x;
+		y += touch.y;
+	}
+	return [x / touches.length, y / touches.length];
+}
+
+function getTouchDistance() {
+	if (touches.length < 2) return 0;
+	const [a, b] = touches;
+	return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+canvas.onTouchStart = function (touch) {
+	if (touches.length < 2) {
+		const t = {
+			id: touch.identifier, 
+			x: touch.clientX, 
+			y: touch.clientY
+		};
+		touches.push(t);
+		lastPointer = getTouchPointer();
+		lastTouchDistance = getTouchDistance();
+
+		onTouchMove[t.id] = function (touch) {
+			t.x = touch.clientX;
+			t.y = touch.clientY;
+			onPointerMove(getTouchPointer(), touches.length >= 2);
+
+			const d = getTouchDistance();
+			if (d) {
+				zoom(Math.pow(lastTouchDistance / d, 1.666));
+				lastTouchDistance = d;
+			}
+		}
+
+		onTouchEnd[t.id] = function (touch) {
+			const i = touches.findIndex(t => t.id === touch.identifier);
+			if (i > -1) {
+				touches.splice(i, 1);
+				lastPointer = touches.length > 0 ? getTouchPointer() : null;
+			}
+		}
 	}
 }
 
@@ -2029,7 +2134,7 @@ function update() {
 	dts = dt / 1000;
 	lastTime = now;
 
-	if (!lastPoint) {
+	if (!lastPointer) {
 		nry += 0.015 * settings.orbitSpeed * dts;
 	}
 
