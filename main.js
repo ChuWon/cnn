@@ -1,3 +1,5 @@
+const DEV = window.location.hostname === 'localhost';
+
 const worker = new Worker('./webWorker.js');
 
 let progress = 0;
@@ -821,6 +823,8 @@ void main() {
 precision highp float;
 
 uniform vec3 lightPos;
+uniform float t;
+uniform vec3 center;
 
 varying vec3 vPos;
 varying vec3 vViewPos;
@@ -833,7 +837,11 @@ void main() {
 	float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 7.0);
 	float diffuse = max(0.0, dot(normalize(lightPos - vPos), vNormal));
 	float light = 0.3 + diffuse * 0.7 + spec * 0.5 + fresnel * 0.22;
-	vec3 color = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity) * light;
+	vec3 color = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity);
+	if (t < 1.0 && length(vPos.xz - center.xz) < t * 46.66) {
+		color = mix(color, vec3(1.0), t);
+	}
+	color *= light;
 	gl_FragColor = vec4(color, 1.0);
 }
 
@@ -1332,8 +1340,26 @@ function drawHud(ctx) {
 
 		const unlockedColor = getHoverColor();
 
+		if (unlockedPointList.length > 1) {
+			ctx.beginPath();
+			for (let i = 0; i < unlockedPointList.length - 1; i++) {
+				const a = project2(...unlockedPointList[i]);
+				const b = project2(...unlockedPointList[i + 1]);
+				if (a && b) {
+					ctx.moveTo(a[0] * W, a[1] * H);
+					ctx.lineTo(b[0] * W, b[1] * H);
+				}
+			}
+			ctx.setLineDash([7, 10]);
+			ctx.lineDashOffset = -now / 10 % 1000;
+			ctx.strokeStyle = '#fff';
+			ctx.lineWidth = 2;
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+
 		for (let i = 0; i < lossLandscape.points.length; i++) {
-			if (isLossPointHidden(i % lossLandscapeLength, Math.floor(i / lossLandscapeLength))) continue;
+			if (!(i in unlockedPoints) && isLossPointHidden(i % lossLandscapeLength, Math.floor(i / lossLandscapeLength))) continue;
 
 			const loss = lossLandscapePoints[i];
 			const p = project2(...lossLandscape.points[i]);
@@ -2065,9 +2091,9 @@ window.onmousemove = function (event) {
 					x: toRange(lossLandscapeRange, ix / lossLandscapeLength), 
 					y: toRange(lossLandscapeRange, iy / lossLandscapeLength), 
 					pos: point, 
-					loss: lossLandscapePoints[i], 
-					t: 0
+					loss: lossLandscapePoints[i]
 				};
+				if (!lastPointer) hoveredPoint.t = 0;
 				minDistance = p[2];
 			}
 		}
@@ -2254,9 +2280,12 @@ let projectionMatrix, viewMatrix;
 
 let showingLossLandscape = false;
 
-const unlockedPoints = {};
+let unlockT = 1;
 
-const landscapeTexts = [
+const unlockedPoints = {};
+const unlockedPointList = [];
+
+const landscapeTexts = DEV ? ['XD', 'testing XD', 'LOL'] : [
 	'you died', 
 	'very good', 
 	'666', 
@@ -2279,6 +2308,7 @@ const landscapeTexts = [
 	'fish',
 	'rope4u'
 ];
+const unlockTime = DEV ? 0.4666 : 4.666;
 
 let now = 0;
 let lastTime = Date.now();
@@ -2313,17 +2343,25 @@ function update() {
 	settingsEl.style.transform = `translateY(${(1 - showT) * -200}%)`;
 	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
 
-	if (hoveredPoint && !(hoveredPoint.i in unlockedPoints)) {
+	if (hoveredPoint?.t !== undefined && !(hoveredPoint.i in unlockedPoints)) {
 		if (lastPointer) {
-			hoveredPoint.t += dts / 4.666;
+			hoveredPoint.t += dts / unlockTime;
 			if (hoveredPoint.t > 1) {
 				unlockedPoints[hoveredPoint.i] = landscapeTexts[Math.floor(Math.random() * landscapeTexts.length)];
+				unlockedPointList.push(lossLandscape.points[hoveredPoint.i]);
+				unlockT = 0;
 				hoveredPoint.t = 0;
+
+				gl.useProgram(planeProgram);
+				gl.uniform3fv(planeProgram.uniforms.center, hoveredPoint.pos);
 			}
 		} else {
 			hoveredPoint.t = 0;
 		}
 	}
+
+	unlockT += dts / 1;
+	unlockT > 1 && (unlockT = 1);
 
 	hoverT = lerp(hoverT, 1, getLerpFactor(0.2));
 	dragT = lerp(dragT, dragging ? 1 : 0, getLerpFactor(0.2));
@@ -2541,6 +2579,7 @@ function renderLossLandscape() {
 		gl.useProgram(planeProgram);
 
 		gl.uniform3fv(planeProgram.uniforms.lightPos, lightPos);
+		gl.uniform1f(planeProgram.uniforms.t, Math.sin(unlockT * Math.PI));
 		gl.uniformMatrix4fv(planeProgram.uniforms.projectionMatrix, false, projectionMatrix);
 		gl.uniformMatrix4fv(planeProgram.uniforms.viewMatrix, false, viewMatrix);
 

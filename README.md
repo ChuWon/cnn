@@ -8,3 +8,5 @@ demo: https://chuwon.github.io/cnn
 
 ![screenshot](https://raw.githubusercontent.com/chuwon/cnn/master/screenshot.png)
 ![loss landscape](https://raw.githubusercontent.com/chuwon/cnn/master/loss.png)
+
+![astral>>>](https://raw.githubusercontent.com/chuwon/cnn/master/troll.png)
