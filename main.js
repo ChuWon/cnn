@@ -1328,8 +1328,9 @@ function drawHud(ctx) {
 	ctx.textAlign = 'center';
 
 	if (showingLossLandscape) {
-		ctx.fillStyle = colors.activation;
 		ctx.textBaseline = 'bottom';
+
+		const unlockedColor = getHoverColor();
 
 		for (let i = 0; i < lossLandscape.points.length; i++) {
 			if (isLossPointHidden(i % lossLandscapeLength, Math.floor(i / lossLandscapeLength))) continue;
@@ -1337,6 +1338,7 @@ function drawHud(ctx) {
 			const loss = lossLandscapePoints[i];
 			const p = project2(...lossLandscape.points[i]);
 			if (p) {
+				ctx.fillStyle = i in unlockedPoints ? unlockedColor : colors.activation;
 				ctx.fillText(loss.toFixed(2), p[0] * W, p[1] * H);
 			}
 		}
@@ -1362,6 +1364,9 @@ function drawHud(ctx) {
 				`Loss: ${hoveredPoint.loss.toFixed(2)}`
 			];
 
+			const t = unlockedPoints[hoveredPoint.i];
+			t && texts.push(`txtJus4u: ${t}`);
+			
 			const widths = [];
 
 			const fontSize = 10;
@@ -1397,8 +1402,16 @@ function drawHud(ctx) {
 			ctx.lineTo(6, 0);
 			ctx.closePath();
 			ctx.restore();
-			ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+			ctx.fillStyle = t ? unlockedColor : 'rgba(0, 0, 0, 0.3)';
 			ctx.fill();
+
+			if (hoveredPoint.t > 0) {
+				ctx.save();
+				ctx.clip();
+				ctx.fillStyle = unlockedColor;
+				ctx.fillRect(0, 0, width, height * hoveredPoint.t);
+				ctx.restore();
+			}
 
 			ctx.translate(width / 2, padding);
 
@@ -2046,12 +2059,14 @@ window.onmousemove = function (event) {
 				const iy = Math.floor(i / lossLandscapeLength);
 
 				hoveredPoint = {
+					i, 
 					ix, 
 					iy, 
 					x: toRange(lossLandscapeRange, ix / lossLandscapeLength), 
 					y: toRange(lossLandscapeRange, iy / lossLandscapeLength), 
 					pos: point, 
-					loss: lossLandscapePoints[i]
+					loss: lossLandscapePoints[i], 
+					t: 0
 				};
 				minDistance = p[2];
 			}
@@ -2239,6 +2254,32 @@ let projectionMatrix, viewMatrix;
 
 let showingLossLandscape = false;
 
+const unlockedPoints = {};
+
+const landscapeTexts = [
+	'you died', 
+	'very good', 
+	'666', 
+	'new stuff', 
+	'keep going', 
+	'stop!', 
+	'repeat', 
+	'try again', 
+	'▲', 
+	'rip lol', 
+	'bye bye', 
+	'nope', 
+	'yep', 
+	'never return XD', 
+	'555', 
+	'2 coins', 
+	'green', 
+	'red', 
+	'fuck',
+	'fish',
+	'rope4u'
+];
+
 let now = 0;
 let lastTime = Date.now();
 let dt = 0;
@@ -2271,6 +2312,18 @@ function update() {
 	headerEl.style.transform = `translateX(${(1 - showT) * 200}%)`;
 	settingsEl.style.transform = `translateY(${(1 - showT) * -200}%)`;
 	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
+
+	if (hoveredPoint && !(hoveredPoint.i in unlockedPoints)) {
+		if (lastPointer) {
+			hoveredPoint.t += dts / 4.666;
+			if (hoveredPoint.t > 1) {
+				unlockedPoints[hoveredPoint.i] = landscapeTexts[Math.floor(Math.random() * landscapeTexts.length)];
+				hoveredPoint.t = 0;
+			}
+		} else {
+			hoveredPoint.t = 0;
+		}
+	}
 
 	hoverT = lerp(hoverT, 1, getLerpFactor(0.2));
 	dragT = lerp(dragT, dragging ? 1 : 0, getLerpFactor(0.2));
