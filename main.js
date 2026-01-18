@@ -838,7 +838,7 @@ void main() {
 	float diffuse = max(0.0, dot(normalize(lightPos - vPos), vNormal));
 	float light = 0.3 + diffuse * 0.7 + spec * 0.5 + fresnel * 0.22;
 	vec3 color = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity);
-	if (t < 1.0 && length(vPos.xz - center.xz) < t * 46.66) {
+	if (t < 1.0 && length(vPos.xz - center.xz) < t * 26.66) {
 		color = mix(color, vec3(1.0), t);
 	}
 	color *= light;
@@ -2567,7 +2567,7 @@ function renderBoxes() {
 	gl.vertexAttribPointer(lineProgram.attributes.worldPos, 3, gl.FLOAT, false, 0, 0);
 	ext.vertexAttribDivisorANGLE(lineProgram.attributes.worldPos, 1);
 
-	ext.drawArraysInstancedANGLE(gl.LINES, 0, mesh.lines.length, objectCount);
+	ext.drawArraysInstancedANGLE(gl.LINES, 0, mesh.lines.length / 3, objectCount);
 
 	gl.disableVertexAttribArray(lineProgram.attributes.position);
 	gl.disableVertexAttribArray(lineProgram.attributes.worldPos);
