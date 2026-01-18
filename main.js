@@ -1306,6 +1306,10 @@ troll.src = 'troll.png';
 troll.onload = () => console.log('💩💩💩💩 SIGMA IS HERE 💩💩💩💩');
 troll.onerror = () => console.log(`💩💩💩💩 pooping rn 💩💩💩💩`);
 
+function isLossPointHidden(x, y) {
+	return depth > 70 && (x + y % 3) % 3 !== 0
+}
+
 function drawHud(ctx) {
 	const canvas = ctx.canvas;
 	const scale = Math.max(canvas.width / 1366, canvas.height / 768);
@@ -1328,7 +1332,7 @@ function drawHud(ctx) {
 		ctx.textBaseline = 'bottom';
 
 		for (let i = 0; i < lossLandscape.points.length; i++) {
-			if (depth > 70 && ((i % lossLandscapeLength) + Math.floor(i / lossLandscapeLength) % 3) % 3 !== 0) continue;
+			if (isLossPointHidden(i % lossLandscapeLength, Math.floor(i / lossLandscapeLength))) continue;
 
 			const loss = lossLandscapePoints[i];
 			const p = project2(...lossLandscape.points[i]);
@@ -1346,6 +1350,67 @@ function drawHud(ctx) {
 			ctx.fillStyle = 'brown';
 			ctx.textBaseline = 'middle';
 			ctx.fillText('f💩ggit', 0, 0);
+			ctx.restore();
+		}
+
+		if (hoveredPoint) block: {
+			const p = project2(...hoveredPoint.pos);
+			if (!p) break block;
+
+			const texts = [
+				`(${(hoveredPoint.x.toFixed(2))}, ${hoveredPoint.y.toFixed(2)})`, 
+				`Loss: ${hoveredPoint.loss.toFixed(2)}`
+			];
+
+			const widths = [];
+
+			const fontSize = 10;
+			const padding = 5;
+			const gap = 3;
+
+			let width = 0;
+			let height = padding * 2 + texts.length * (fontSize + gap) - gap;
+
+			ctx.font = `normal ${fontSize}px monospace`;
+
+			for (let i = 0; i < texts.length; i++) {
+				const w = ctx.measureText(texts[i]).width;
+				if (w > width) width = w;
+				widths.push(w);
+			}
+
+			width += padding * 2;
+
+			ctx.save();
+			ctx.translate(p[0] * W, p[1] * H - (isLossPointHidden(hoveredPoint.ix, hoveredPoint.iy) ? 14 : 22) + 6 * (1 - hoverT));
+			ctx.scale(0.4 + 0.6 * hoverT, 1)
+			ctx.translate(-width / 2, -height);
+
+			ctx.globalAlpha *= hoverT;
+
+			ctx.beginPath();
+			ctx.roundRect(0, 0, width, height, 3);
+			ctx.save();
+			ctx.translate(width / 2, height);
+			ctx.moveTo(-6, 0);
+			ctx.lineTo(0, 6 * hoverT);
+			ctx.lineTo(6, 0);
+			ctx.closePath();
+			ctx.restore();
+			ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+			ctx.fill();
+
+			ctx.translate(width / 2, padding);
+
+			ctx.textBaseline = 'top';
+			ctx.textAlign = 'center';
+			ctx.fillStyle = '#fff';
+
+			for (const text of texts) {
+				ctx.fillText(text, 0, 0);
+				ctx.translate(0, fontSize + gap);
+			}
+
 			ctx.restore();
 		}
 	} else {
@@ -1889,6 +1954,8 @@ function onPointerMove(pointer, pan) {
 }
 
 let picked;
+let hoveredPoint;
+let hoverT = 0;
 
 let lastPointer;
 canvas.onmousedown = function (event) {
@@ -1924,8 +1991,8 @@ window.onmousemove = function (event) {
 
 			const path = new Path2D();
 			for (const point of points) {
-				const p = project2(...point);
-				if (!p) {
+				const p = project(...point);
+				if (p[2] < 0 || p[2] > 1) {
 					inView = false;
 					break;
 				}
@@ -1964,6 +2031,33 @@ window.onmousemove = function (event) {
 				layer.kernelSize
 			);
 		}
+	}
+
+	if (showingLossLandscape) {
+		const old = hoveredPoint;
+		hoveredPoint = null;
+
+		let minDistance = Infinity;
+		for (let i = 0; i < lossLandscape.points.length; i++) {
+			const point = lossLandscape.points[i];
+			const p = project2(...point);
+			if (p && Math.hypot(p[0] * window.innerWidth - pointer[0], p[1] * window.innerHeight - pointer[1]) < 10 && p[2] < minDistance) {
+				const ix = i % lossLandscapeLength;
+				const iy = Math.floor(i / lossLandscapeLength);
+
+				hoveredPoint = {
+					ix, 
+					iy, 
+					x: toRange(lossLandscapeRange, ix / lossLandscapeLength), 
+					y: toRange(lossLandscapeRange, iy / lossLandscapeLength), 
+					pos: point, 
+					loss: lossLandscapePoints[i]
+				};
+				minDistance = p[2];
+			}
+		}
+
+		if (old?.pos !== hoveredPoint?.pos) hoverT = 0;
 	}
 }
 window.onmouseup = function (event) {
@@ -2178,6 +2272,7 @@ function update() {
 	settingsEl.style.transform = `translateY(${(1 - showT) * -200}%)`;
 	sketchEl.style.transform = `translateY(${(1 - showT) * 200}%)`;
 
+	hoverT = lerp(hoverT, 1, getLerpFactor(0.2));
 	dragT = lerp(dragT, dragging ? 1 : 0, getLerpFactor(0.2));
 	shakeT = lerp(shakeT, Math.abs(cx) > 2500 || Math.abs(cy) > 2500 || Math.abs(cz) > 2500 ? 1 : 0, getLerpFactor(0.1));
 
