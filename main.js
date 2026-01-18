@@ -176,7 +176,8 @@ worker.onmessage = function (event) {
 			}
 
 			prediction = {
-				probs, 
+				probs,
+				maxProb,  
 				result
 			};
 		}	break;
@@ -1591,9 +1592,6 @@ function drawHud(ctx) {
 }
 
 function drawNetworkHud(ctx, W, H) {
-	const r = getScreenSpaceSize() * H;
-	const offset = r + 10;
-
 	for (const item of texts) {
 		const p = project2(...item.pos);
 		if (p) {
@@ -1607,8 +1605,13 @@ function drawNetworkHud(ctx, W, H) {
 	const outputLayer = layers[layers.length - 1];
 
 	for (let i = 0; i < outputLayer.outputLength; i++) {
-		const p = project2(...boxes[outputLayer.offset + i]);
+		const bi = outputLayer.offset + i;
+		const [bx, by, bz] = boxes[bi];
+		const p = project2(bx, by, bz);
 		if (p) {
+			const b = project(bx + 1, by + 1, bz + 1);
+			const offset = 7 + Math.hypot(p[0] - b[0], p[1] - b[1], p[2] - b[2]) * H;
+
 			const [x, y] = p;
 			const dir = x > 0.5 ? 1 : -1;
 			ctx.save();
@@ -1618,25 +1621,35 @@ function drawNetworkHud(ctx, W, H) {
 			ctx.fillStyle = colors.label;
 			ctx.fillText(i, dir * offset, 0);
 
-			if (prediction && predictT > 0.99 && predictT < 1) {
-				ctx.textAlign = x < 0.5 ? 'left' : 'right';
-				ctx.fillStyle = colors.activation;
-				ctx.fillText(prediction.probs[i].toFixed(2), -dir * offset, 0);
+			if (prediction) {
+				const highlight = i === prediction.result;
+				const f = lerp(startActivationData[bi], activationData[bi], predictT);
+				if (f > 0) {
+					const w = f * 69;
+					ctx.fillStyle = `hsl(0, 40%, ${f * 20 + 17}%)`;
+					ctx.fillRect(-dir * offset + (dir === 1 ? -w : 0), -8, w, 16);
+				}
 
-				if (i === prediction.result) {
-					ctx.scale(dir, 1);
-					ctx.translate(offset + 15 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
-					ctx.beginPath();
-					ctx.moveTo(0, 0);
-					ctx.lineTo(15, 12);
-					ctx.lineTo(15, 5);
-					ctx.lineTo(35, 5);
-					ctx.lineTo(35, -5);
-					ctx.lineTo(15, -5);
-					ctx.lineTo(15, -12);
-					ctx.closePath();
-					ctx.fillStyle = getHoverColor();
-					ctx.fill();
+				if (predictT > 0.99 && predictT < 1) {
+					ctx.textAlign = x < 0.5 ? 'left' : 'right';
+					ctx.fillStyle = colors.activation;
+					ctx.fillText(prediction.probs[i].toFixed(2), -dir * (offset + 2), 0);
+
+					if (highlight) {
+						ctx.scale(dir, 1);
+						ctx.translate(offset + 15 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
+						ctx.beginPath();
+						ctx.moveTo(0, 0);
+						ctx.lineTo(15, 12);
+						ctx.lineTo(15, 5);
+						ctx.lineTo(35, 5);
+						ctx.lineTo(35, -5);
+						ctx.lineTo(15, -5);
+						ctx.lineTo(15, -12);
+						ctx.closePath();
+						ctx.fillStyle = getHoverColor();
+						ctx.fill();
+					}
 				}
 			}
 
@@ -1907,12 +1920,21 @@ window.onmousemove = function (event) {
 
 			let midZ = 0;
 
+			let inView = true;
+
 			const path = new Path2D();
-			for (const p of points) {
-				const [x, y, z] = project(...p);
+			for (const point of points) {
+				const p = project2(...point);
+				if (!p) {
+					inView = false;
+					break;
+				}
+				const [x, y, z] = p;
 				path.lineTo(x * window.innerWidth, y * window.innerHeight);
 				midZ += z;
 			}
+
+			if (!inView) continue;
 
 			midZ /= points.length;
 
@@ -2476,12 +2498,6 @@ function createBuffer(data, dynamic) {
 
 function getHoverColor() {
 	return `hsl(${(now / 400 % 1) * 360}deg, 100%, 70%)`;
-}
-
-function getScreenSpaceSize() {
-	const a = project(cx + 1, cy + 1, cz + 1);
-	const b = project(cx, cy, cz);
-	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
 function project(x, y, z) {
