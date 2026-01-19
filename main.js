@@ -831,6 +831,8 @@ varying vec3 vViewPos;
 varying vec3 vNormal;
 varying float vIntensity;
 
+float PI2 = ${PI2.toString()}2666;
+
 void main() {
 	vec3 viewDir = -normalize(vViewPos);
 	float spec = pow(max(dot(reflect(normalize(vViewPos - lightPos), vNormal), viewDir), 0.0), 0.7);
@@ -838,9 +840,29 @@ void main() {
 	float diffuse = max(0.0, dot(normalize(lightPos - vPos), vNormal));
 	float light = 0.3 + diffuse * 0.7 + spec * 0.5 + fresnel * 0.22;
 	vec3 color = mix(vec3(0.01, 0.66, 0.95), vec3(0.54, 0.81, 0.22), vIntensity);
-	if (t < 1.0 && length(vPos.xz - center.xz) < t * 26.66) {
-		color = mix(color, vec3(1.0), t);
+
+	float r = t * 26.66;
+	vec2 p = vPos.xz - center.xz;
+	if (length(p) < r) {		
+		float n = 10.0;
+		float i = floor(mod((atan(p.y, p.x) + PI2), PI2) / PI2 * n);
+		float step = PI2 / n;
+		float a0 = i * step;
+		float a1 = a0 + step;
+	
+		float d = 0.4 + t * 0.3;
+		float m = mod(i, 2.0);
+		vec2 p1 = vec2(cos(a0), sin(a0)) * (1.0 + d * (m - 1.0)) * r;
+		vec2 p0 = vec2(cos(a1), sin(a1)) * (1.0 - d * m) * r;
+		vec2 mid = (p0 + p1) * 0.5;
+		vec2 nor = vec2(-(p1.y - p0.y), p1.x - p0.x);
+		float proj = dot(nor, p - mid);
+	
+		if (proj < 0.0) {
+			color = mix(color, vec3(1.0), t);
+		}
 	}
+
 	color *= light;
 	gl_FragColor = vec4(color, 1.0);
 }
