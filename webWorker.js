@@ -957,6 +957,18 @@ function newModel() {
 		new MaxPool(22, 2), 
 		new Linear(16 * 11 * 11, 10)
 	]);
+
+	// bad model with 82% at epoch 1
+
+	/*setLayers([
+		new Conv(28, 1, 3, 4), 
+		new ReLU(), 
+		new MaxPool(26, 2), 
+		new Conv(13, 4, 3, 8), 
+		new ReLU(), 
+		new MaxPool(11, 2), 
+		new Linear(5 * 5 * 8 * 4, 10)
+	]);*/
 }
 
 let trainCount = 0;

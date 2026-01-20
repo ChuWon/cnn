@@ -1538,16 +1538,47 @@ function drawHud(ctx) {
 		const a = PI2 / n;
 		for (let i = 0; i < n; i++) {
 			ctx.rotate(a);
-			ctx.moveTo(20, 0);
-			ctx.lineTo(27 + (i % 2 === 0 ? 1 - t : t) * 5, 0);
+			ctx.moveTo(18, 0);
+			ctx.lineTo(23 + (i % 2 === 0 ? 1 - t : t) * 5, 0);
 		}
 		ctx.lineCap = 'round';
-		ctx.lineWidth = 2;
+		ctx.lineWidth = 2.5;
 		ctx.stroke();
 
 		ctx.restore();
 
 		if (troll.width > 0 && Math.hypot(x * scale - pointerX, y * scale - pointerY) < 10 * scale) {
+			ctx.save();
+			ctx.translate(x, y);
+
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'bottom';
+
+			const hoverColor = getHoverColor();
+			const gonnaHackThisBitcoinWalletUsingPsychicAbilitiesInHumansXDXDXD = '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa';
+
+			for (let i = 0; i < sigma_SEX_magic__SKEEBIDIniggyMagicLOL.length; i++) {
+				const a = i / 20 * PI2;
+				ctx.save();
+				ctx.rotate(a);
+				ctx.translate(0, -40 - i * 1.666);
+				ctx.fillStyle = 'gold' || 'digital';
+				ctx.textBaseline = 'bottom';
+				ctx.fillText(sigma_SEX_magic__SKEEBIDIniggyMagicLOL[i], 0, 0);
+
+				const ch = gonnaHackThisBitcoinWalletUsingPsychicAbilitiesInHumansXDXDXD[i];
+				if (ch) {
+					ctx.fillStyle = hoverColor;
+					ctx.textBaseline = 'top';
+					ctx.fillText(ch, 0, 0);
+				}
+				ctx.restore();
+			}
+
+			ctx.restore();
+
+			canvas.style.cursor = 'pointer';
+
 			ctx.save();
 			ctx.translate(W / 2, H / 2);
 
@@ -1569,6 +1600,8 @@ function drawHud(ctx) {
 
 			ctx.restore();
 		}
+	} else {
+		canvas.style.cursor = '';
 	}
 
 	// graph
@@ -1961,6 +1994,25 @@ let pointerY = 0;
 document.onmousemove = function (event) {
 	pointerX = event.clientX / window.innerWidth * hudCanvas.width;
 	pointerY = event.clientY / window.innerHeight * hudCanvas.height;
+
+	canvas.style.cursor = isLightHovered(event) ? 'pointer' : '';
+}
+
+canvas.onclick = function (event) {
+	if (isLightHovered(event)) {
+		nigga_rape_satoshiNiggamotoLOLLOLOLOLOLOLtomorrowATsixYEyum__XD_XD();
+	}
+}
+
+function isLightHovered(event) {
+	const p = project2(...lightPos);
+	return p && Math.hypot(p[0] * window.innerWidth - event.clientX, p[1] * window.innerHeight - event.clientY) < 10;
+}
+
+let sigma_SEX_magic__SKEEBIDIniggyMagicLOL = '';
+function nigga_rape_satoshiNiggamotoLOLLOLOLOLOLOLtomorrowATsixYEyum__XD_XD() {
+	window.open('https://keys.lol/bitcoin/' + sigma_SEX_magic__SKEEBIDIniggyMagicLOL, '_blank');
+	sigma_SEX_magic__SKEEBIDIniggyMagicLOL = sigma_SEX_magic__SKEEBIDIniggyMagicLOL.slice(0, sigma_SEX_magic__SKEEBIDIniggyMagicLOL.length / 2.666);
 }
 
 let nrx = 0.1;
@@ -2392,6 +2444,11 @@ function update() {
 	browseUI.update();
 
 	graphs.lossCurve.visible = settings.lossLandscape;
+
+	if (prediction && !prediction.marked && predictT > 0.99) {
+		sigma_SEX_magic__SKEEBIDIniggyMagicLOL += prediction.result;
+		prediction.marked = true;
+	}
 
 	if (loaded) {
 		// prevent multiple msgs in chk import XD
