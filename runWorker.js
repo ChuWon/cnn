@@ -1,14 +1,14 @@
-const file = 'mnist_train.csv';
+const file = 'mnist_train.bin';
 
 let cpuCount;
 if (typeof window === 'undefined') {
 	globalThis.Worker = require('worker_threads').Worker;
 	cpuCount = require('os').cpus().length;
 
-	require('fs/promises').readFile(file, { encoding: 'utf8' }).then(parse);
+	require('fs/promises').readFile(file).then(buffer => parse(buffer.buffer));
 } else {
 	cpuCount = navigator.hardwareConcurrency;
-	fetch(file).then(res => res.text()).then(parse);
+	fetch(file).then(res => res.arrayBuffer()).then(parse);
 }
 
 const workerCount = Math.max(1, cpuCount - 2);
@@ -383,25 +383,23 @@ function getAccuracy(targets, predictions, outputLength) {
 
 let data, datasets;
 
-function parse(text) {
+function parse(buffer) {
 	data = [];
 
-	const lines = text.split('\n');
-	lines.shift();
+	const msg = new DataView(buffer);
+	let offset = 0;
 
-	for (let line of lines) {
-		line = line.trim();
-		if (!line) continue;
-
-		const items = line.split(',');
-		const label = parseInt(items.shift());
-		for (let i = 0; i < items.length; i++) {
-			items[i] = parseInt(items[i]) / 255;
+	while (offset < msg.byteLength) {
+		const cls = msg.getUint8(offset++);
+		const pixels = new Float32Array(28 * 28);
+		for (let i = 0; i < pixels.length; i++) {
+			pixels[i] = msg.getUint8(offset++) / 255;
 		}
 
 		data.push({
-			x: new Float32Array(items), 
-			y: label
+			id: data.length, 
+			x: pixels, 
+			y: cls
 		});
 	}
 

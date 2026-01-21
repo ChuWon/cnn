@@ -1,5 +1,42 @@
 const DEV = window.location.hostname === 'localhost';
 
+const epochs = 5;
+
+const configs = {
+	mnist: {
+		inputSize: 28, 
+		inputDepth: 1, 
+		model: 'mnist', 
+		datasetUrl: 'mnist_train.bin', 
+		checkpointUrl: 'mnist-e10-11.19.666', 
+		checkpointName: 'mnist', 
+		batchSize: 1, 
+	}, 
+	cifar10:  {
+		inputSize: 32, 
+		inputDepth: 3, 
+		model: 'cifar10', 
+		datasetUrl: 'cifar-10-batches-bin/data_batch_1.bin', 
+		checkpointUrl: 'cifar10-e5-0.00.666', 
+		checkpointName: 'cifar10', 
+		batchSize: 1, 
+		labels: [
+			'airplane', 
+			'automobile', 
+			'bird', 
+			'cat', 
+			'deer', 
+			'dog', 
+			'frog', 
+			'horse', 
+			'ship', 
+			'truck' 
+		]
+	}
+};
+
+const config = configs.mnist;
+
 const worker = new Worker('./webWorker.js');
 
 let progress = 0;
@@ -19,6 +56,11 @@ function createModel() {
 		setSetting(key, defaultSettings[key]);
 	}
 }
+
+worker.postMessage({
+	id: 'config', 
+	config
+});
 
 modelId = '69969';
 worker.postMessage({
@@ -95,7 +137,7 @@ worker.onmessage = function (event) {
 
 			browseUI.reqContent();
 
-			fetch('cnn-e10-11.19.666')
+			config.checkpointUrl && fetch(config.checkpointUrl)
 				.then(res => res.text())
 				.then(importCheckpoint)
 				.catch(error => console.log(`checkpoint load error: ${error.message}`))
@@ -186,7 +228,7 @@ worker.onmessage = function (event) {
 
 		case 'elPrediction':
 			const el = document.getElementById(msg.el);
-			el.innerText = `pred: ${msg.y}`;
+			el.innerText = `pred: ${getLabel(msg.y)}`;
 			break;
 
 		case 'lossCurve':
@@ -205,7 +247,7 @@ worker.onmessage = function (event) {
 		case 'checkpoint':
 			const a = document.createElement('a');
 			a.href = URL.createObjectURL(new Blob([msg.json], { type: 'text/plain' }));
-			a.download = `cnn-e${epoch}-${(epochPercent * 100).toFixed(2)}.666`;
+			a.download = `${config.checkpointName}-e${epoch}-${(epochPercent * 100).toFixed(2)}.666`;
 			a.click();
 			break;
 
@@ -251,8 +293,8 @@ worker.onmessage = function (event) {
 			layers = msg.layers;
 			layers.unshift({
 				type: 'Input', 
-				size: inputSize, 
-				depth: 1
+				size: config.inputSize, 
+				depth: config.inputDepth
 			});
 			initObjects();
 			break;
@@ -324,16 +366,19 @@ function importCheckpoint(json) {
 let userInput;
 
 function predict(image) {
+	const size = config.inputSize;
+	const pixelCount = size * size;
+
 	const canvas = document.createElement('canvas');
-	canvas.width = canvas.height = inputSize;
+	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext('2d');
 
-	ctx.drawImage(image, 0, 0, inputSize, inputSize);
+	ctx.drawImage(image, 0, 0, size, size);
 
-	const imageData = ctx.getImageData(0, 0, inputSize, inputSize);
+	const imageData = ctx.getImageData(0, 0, size, size);
 
-	userInput = new Float32Array(inputLength);
-	for (let i = 0; i < inputLength; i++) {
+	userInput = new Float32Array(config.inputDepth * pixelCount);
+	for (let i = 0; i < pixelCount; i++) {
 		userInput[i] = imageData.data[i * 4 + 3] / 255;
 	}
 }
@@ -511,11 +556,6 @@ function disposeLossLandscape() {
 	}
 }
 
-const epochs = 5;
-
-const inputSize = 28;
-const inputLength = 28 * 28;
-
 function Grid(size = 20) {
 	const canvas = document.createElement('canvas');
 	canvas.width = canvas.height = size;
@@ -563,7 +603,7 @@ function SketchUI() {
 			border: 2px solid hsla(0, 0%, 100%, 0.2);
 			pointer-events: all;
 		"></canvas>
-		<div>draw a digit xp</div>
+		<div>draw a sumthing xp</div>
 	</div>`);
 	uiEl.appendChild(el);
 
@@ -1131,7 +1171,7 @@ const settings = {
 	autoSaveCheckpoint: false, 
 	learningRate: [0.01, 0.01, 1, 0.01], 
 	checkpointSaveInterval: [0.1, 0.01, 1, 0.01], 
-	batchSize: [1, 1, 666, 1], 
+	batchSize: [config.batchSize, 1, 666, 1], 
 	trainSplit: [0.8, 0.01, 0.99, 0.01], 
 	dataSplit: [1, 0.01, 1, 0.01], 
 	orbitSpeed: [1, 0, 50, 1]
@@ -1778,7 +1818,8 @@ function drawNetworkHud(ctx, W, H) {
 			ctx.textBaseline = 'middle';
 			ctx.textAlign = x > 0.5 ? 'left' : 'right';
 			ctx.fillStyle = colors.label;
-			ctx.fillText(i, dir * offset, 0);
+			const label = getLabel(i);
+			ctx.fillText(label, dir * offset, 0);
 
 			if (prediction) {
 				const highlight = i === prediction.result;
@@ -1796,7 +1837,7 @@ function drawNetworkHud(ctx, W, H) {
 
 					if (highlight) {
 						ctx.scale(dir, 1);
-						ctx.translate(offset + 15 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
+						ctx.translate(offset + ctx.measureText(label).width + 10 + (Math.sin((now / 200 % 1) * PI2) * 0.5 + 0.5) * 5, -2);
 						ctx.beginPath();
 						ctx.moveTo(0, 0);
 						ctx.lineTo(15, 12);
@@ -2261,23 +2302,31 @@ canvas.onTouchStart = function (touch) {
 	}
 }
 
-function createImage(data, size) {
+function createImage(data, size, min, max) {
 	const canvas = document.createElement('canvas');
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext('2d');
 
 	const imageData = ctx.createImageData(size, size);
 
-	let min = Infinity;
-	let max = -Infinity;
-	for (let i = 0; i < data.length; i++) {
-		min = Math.min(data[i], min);
-		max = Math.max(data[i], max);
+	if (min === undefined) {
+		min = Infinity;
+		max = -Infinity;
+		for (let i = 0; i < data.length; i++) {
+			min = Math.min(data[i], min);
+			max = Math.max(data[i], max);
+		}
 	}
 
-	for (let i = 0; i < data.length; i++) {
-		const f = (data[i] - min) / (max - min) * 255;
-		imageData.data.set([f, f, f, 255], i * 4);
+	const l = size * size;
+	for (let i = 0; i < l; i++) {
+		const r = (data[i] - min) / (max - min) * 255;
+		let g = r, b = r;
+		if (data.length > l) {
+			g = (data[i + l] - min) / (max - min) * 255;
+			b = (data[i + 2 * l] - min) / (max - min) * 255;
+		}
+		imageData.data.set([r, g, b, 255], i * 4);
 	}
 
 	ctx.putImageData(imageData, 0, 0);
@@ -2812,6 +2861,10 @@ function getLerpFactor(f) {
 	return 1 - Math.exp(-f * dt / 16);
 }
 
+function getLabel(y) {
+	return config.labels?.[y] || y;
+}
+
 function BrowseUI() {
 	const overlayEl = fromHtml(`<div class="overlay"></div>`);
 	uiEl.appendChild(overlayEl);
@@ -2825,11 +2878,11 @@ function BrowseUI() {
 			</div>
 		</div>
 		<div class="row" style="margin: 5px; margin-top: 0;">
-			<div>Digit</div>
+			<div>Class</div>
 			<select class="numbers" style="width: 60px;">${(function () {
 				let html = '';
 				for (let i = -1; i < 10; i++) {
-					html += `<option value="${i}">${i === -1 ? 'All' : i}</option>`;
+					html += `<option value="${i}">${i === -1 ? 'All' : getLabel(i)}</option>`;
 				}
 				return html;
 			})()}</select>
@@ -2935,10 +2988,11 @@ function BrowseUI() {
 			const el = fromHtml(`<div class="preview">
 				<div class="tooltip">
 					<div>#${item.id}</div>
+					<div>real: ${getLabel(item.y)}</div>
 					<div id="pred-${item.id}"></div>
 				</div>
 			</div>`);
-			el.appendChild(createImage(item.x, inputSize));
+			el.appendChild(createImage(item.x, config.inputSize, 0, 1));
 			el.item = item;
 			el.onclick = onClick;
 			el.onmouseenter = onMouseEnter;
