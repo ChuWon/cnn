@@ -8,18 +8,20 @@ const configs = {
 		inputDepth: 1, 
 		model: 'mnist', 
 		datasetUrl: 'mnist_train.bin', 
-		checkpointUrl: 'mnist-e10-11.19.666', 
+		checkpointUrl: 'checkpoints/mnist-e10-11.19.666', 
 		checkpointName: 'mnist', 
 		batchSize: 1, 
+		learningRate: 0.01
 	}, 
 	cifar10:  {
 		inputSize: 32, 
 		inputDepth: 3, 
 		model: 'cifar10', 
 		datasetUrl: 'cifar-10-batches-bin/data_batch_1.bin', 
-		checkpointUrl: 'cifar10-e5-0.00.666', 
+		checkpointUrl: 'checkpoints/cifar10-e6-17.03.666', 
 		checkpointName: 'cifar10', 
 		batchSize: 1, 
+		learningRate: 0.01, 
 		labels: [
 			'airplane', 
 			'automobile', 
@@ -32,10 +34,20 @@ const configs = {
 			'ship', 
 			'truck' 
 		]
+	}, 
+	mnistNN: {
+		inputSize: 28, 
+		inputDepth: 1, 
+		model: 'mnistNN', 
+		datasetUrl: 'mnist_train.bin', 
+		checkpointUrl: 'checkpoints/mnistNN-e5-0.00.666', 
+		checkpointName: 'mnistNN', 
+		batchSize: 24, 
+		learningRate: 0.5
 	}
 };
 
-const config = configs.mnist;
+const config = configs[new URLSearchParams(location.search).get('config')] || configs.mnist;
 
 const worker = new Worker('./webWorker.js');
 
@@ -165,6 +177,8 @@ worker.onmessage = function (event) {
 					saveCheckpoint();
 				}
 			}
+
+			isTraining() && train();
 			break;
 
 		case 'epoch':
@@ -176,6 +190,8 @@ worker.onmessage = function (event) {
 			addGraph('trainAccuracy', msg.trainAccuracy);
 			addGraph('valLoss', msg.valLoss);
 			addGraph('valAccuracy', msg.valAccuracy);
+
+			isTraining() && train();
 			break;
 
 		case 'prediction': {
@@ -1169,7 +1185,7 @@ const settings = {
 	endlessTraining: false, 
 	lossLandscape: false, 
 	autoSaveCheckpoint: false, 
-	learningRate: [0.01, 0.01, 1, 0.01], 
+	learningRate: [config.learningRate, 0.01, 1, 0.01], 
 	checkpointSaveInterval: [0.1, 0.01, 1, 0.01], 
 	batchSize: [config.batchSize, 1, 666, 1], 
 	trainSplit: [0.8, 0.01, 0.99, 0.01], 
@@ -2520,12 +2536,7 @@ function update() {
 		}
 
 		if (isTraining()) {
-			if (!epoching) {
-				epoching = true;
-				worker.postMessage({
-					id: 'train'
-				});
-			}
+			train();
 		} else if (settings.lossLandscape) {
 			if (!lossCurving && graphs.lossCurve.points.length <= lossCurveLength) {
 				lossCurving = true;
@@ -2547,6 +2558,15 @@ function update() {
 		}
 
 		predictT = lerp(predictT, 1, getLerpFactor(0.1));
+	}
+}
+
+function train() {
+	if (!epoching) {
+		epoching = true;
+		worker.postMessage({
+			id: 'train'
+		});
 	}
 }
 
@@ -2989,7 +3009,7 @@ function BrowseUI() {
 				<div class="tooltip">
 					<div>#${item.id}</div>
 					<div>real: ${getLabel(item.y)}</div>
-					<div id="pred-${item.id}"></div>
+					<div id="pred-${item.id}">pred: sus</div>
 				</div>
 			</div>`);
 			el.appendChild(createImage(item.x, config.inputSize, 0, 1));

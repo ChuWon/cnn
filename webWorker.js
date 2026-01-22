@@ -915,7 +915,7 @@ const xhr = new XMLHttpRequest();
 xhr.responseType = 'arraybuffer';
 
 xhr.onprogress = function (event) {
-	const total = event.total || 69e6;
+	const total = event.total || 33e6;
 	const percent = Math.min(1, event.loaded / total);
 
 	postMessage({
@@ -954,20 +954,16 @@ const models = {
 		new MaxPool(22, 2), 
 		new Linear(16 * 11 * 11, 10)
 	], 
-	cifar10: () => [ // L network 32% acc
+	cifar10: () => [
 		new Conv(32, 3, 7, 16), 
 		new ReLU(), 
 		new MaxPool(26, 2), 
 		new Linear(3 * 16 * 13 * 13, 10)
 	], 
-	mnist2: () => [ // 82% acc at epoch 1 L nob model
-		new Conv(28, 1, 3, 4), 
+	mnistNN: () => [
+		new Linear(28 * 28, 16), 
 		new ReLU(), 
-		new MaxPool(26, 2), 
-		new Conv(13, 4, 3, 8), 
-		new ReLU(), 
-		new MaxPool(11, 2), 
-		new Linear(5 * 5 * 8 * 4, 10)
+		new Linear(16, 10)
 	]
 };
 
