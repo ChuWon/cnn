@@ -6,10 +6,12 @@ convolutional neural network from scratch in js moment xp
 - cifar10 incomplete 40% acc only :skul:
 - mnist nn 93% acc
 
-mnist cnn: https://chuwon.github.io/cnn
-cifar10: https://chuwon.github.io/cnn?config=cifar10
-mnist nn: https://chuwon.github.io/cnn?config=mnistNN
+## demo: 
+- mnist cnn: https://chuwon.github.io/cnn
+- cifar10: https://chuwon.github.io/cnn?config=cifar10
+- mnist nn: https://chuwon.github.io/cnn?config=mnistNN
 
+## screenie:
 ![screenshot](https://raw.githubusercontent.com/chuwon/cnn/master/screenshot.png)
 ![loss landscape](https://raw.githubusercontent.com/chuwon/cnn/master/loss.png)
 
