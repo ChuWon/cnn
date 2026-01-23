@@ -415,9 +415,7 @@ function softmax(x, outputLength) {
 	return x;
 }
 
-function crossEntropy(targets, predictions, outputLength) {
-	const numSamples = targets.length / outputLength;
-	
+function crossEntropy(targets, predictions, outputLength, raw) {
 	let sum = 0;
 	for (let i = 0; i < targets.length; i++) {
 		const p = predictions[i];
@@ -426,6 +424,9 @@ function crossEntropy(targets, predictions, outputLength) {
 		}
 	}
 
+	if (raw) return sum;
+
+	const numSamples = targets.length / outputLength;
 	return sum / numSamples;
 }
 
@@ -440,7 +441,7 @@ function softmaxCrossEntropyPrime(targets, predictions, outputLength) {
 	return out;
 }
 
-function getAccuracy(targets, predictions, outputLength) {
+function getAccuracy(targets, predictions, outputLength, raw) {
 	let correct = 0;
 
 	for (let i = 0; i < targets.length; i += outputLength) {
@@ -449,6 +450,8 @@ function getAccuracy(targets, predictions, outputLength) {
 			correct++;
 		}
 	}
+
+	if (raw) return correct;
 
 	const n = targets.length / outputLength;
 	return correct / n * 100;
@@ -687,13 +690,8 @@ function train() {
 		e++;
 		epochTimeTaken = 0;
 
-		const trainPreds = forward(trainX);
-		const trainLoss = crossEntropy(trainY, trainPreds, outputLength);
-		const trainAccuracy = getAccuracy(trainY, trainPreds, outputLength);
-
-		const valPreds = forward(valX);
-		const valLoss = crossEntropy(valY, valPreds, outputLength);
-		const valAccuracy = getAccuracy(valY, valPreds, outputLength);
+		const [trainLoss, trainAccuracy] = getLossAccuracy(trainX, trainY);
+		const [valLoss, valAccuracy] = getLossAccuracy(valX, valY);
 
 		console.log(`epoch ${e}, train loss: ${trainLoss.toFixed(3)}, train acc: ${trainAccuracy.toFixed(2)}%, val loss: ${valLoss.toFixed(3)}, val acc: ${valAccuracy.toFixed(2)}%, epoch time: ${epochTimeTaken.toFixed(3)}s, time: ${timeTaken.toFixed(3)}s`);
 
@@ -710,6 +708,27 @@ function train() {
 
 	postMessage(msg);
 	sendParams();
+}
+
+function getLossAccuracy(x, y) {
+	const numSamples = x.length / inputLength;
+	const step = 10e3;
+
+	let loss = 0;
+	let accuracy = 0;
+
+	for (let i = 0; i < numSamples; i += step) {
+		const batchX = x.slice(i * inputLength, (i + step) * inputLength);
+		const batchY = y.slice(i * outputLength, (i + step) * outputLength);
+
+		const preds = forward(batchX);
+		loss += crossEntropy(batchY, preds, outputLength, true);
+		accuracy += getAccuracy(batchY, preds, outputLength, true);
+	}
+
+	loss /= numSamples;
+	accuracy *= 100 / numSamples;
+	return [loss, accuracy];
 }
 
 function sendParams() {

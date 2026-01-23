@@ -17,7 +17,7 @@ const configs = {
 		inputSize: 32, 
 		inputDepth: 3, 
 		model: 'cifar10', 
-		datasetUrl: 'cifar-10-batches-bin/data_batch_1.bin', 
+		datasetUrl: 'cifar10-batch-1.bin', 
 		checkpointUrl: 'checkpoints/cifar10-e6-17.03.666', 
 		checkpointName: 'cifar10', 
 		batchSize: 1, 
