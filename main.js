@@ -20,6 +20,9 @@ const configs = {
 		datasetUrl: 'cifar10-batch-1.bin', 
 		checkpointUrl: 'checkpoints/cifar10-e6-17.03.666', 
 		checkpointName: 'cifar10', 
+		/*datasetUrl: 'cifar10.bin', 
+		checkpointUrl: 'checkpoints/cifar10-full-e5-0.03.666', 
+		checkpointName: 'cifar10-full', */
 		batchSize: 1, 
 		learningRate: 0.01, 
 		labels: [
@@ -131,6 +134,8 @@ function setEpoch(msg) {
 
 let prediction;
 
+let cam;
+
 worker.onmessage = function (event) {
 	const msg = event.data;
 
@@ -240,6 +245,8 @@ worker.onmessage = function (event) {
 				maxProb,  
 				result
 			};
+
+			cam = msg.map ? createImage(msg.map, msg.mapSize, undefined, undefined, true) : null;
 		}	break;
 
 		case 'elPrediction':
@@ -1660,6 +1667,20 @@ function drawHud(ctx) {
 		canvas.style.cursor = '';
 	}
 
+	if (cam) {
+		ctx.save();
+		ctx.translate(W - 150 - 15 - 15, H - 29 + (1 - showT) * 300);
+		ctx.imageSmoothingEnabled = false;
+		ctx.drawImage(cam, -151, -151, 151, 151);
+
+		ctx.fillStyle = '#fff';
+		ctx.font = 'normal 10px monospace';
+		ctx.textBaseline = 'top';
+		ctx.textAlign = 'right';
+		ctx.fillText('gradCAM XD', 0, 7);
+		ctx.restore();
+	}
+
 	// graph
 
 	ctx.save();
@@ -2318,7 +2339,7 @@ canvas.onTouchStart = function (touch) {
 	}
 }
 
-function createImage(data, size, min, max) {
+function createImage(data, size, min, max, heatmap) {
 	const canvas = document.createElement('canvas');
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext('2d');
@@ -2336,13 +2357,19 @@ function createImage(data, size, min, max) {
 
 	const l = size * size;
 	for (let i = 0; i < l; i++) {
-		const r = (data[i] - min) / (max - min) * 255;
-		let g = r, b = r;
-		if (data.length > l) {
-			g = (data[i + l] - min) / (max - min) * 255;
-			b = (data[i + 2 * l] - min) / (max - min) * 255;
+		const f = (data[i] - min) / (max - min);
+
+		if (heatmap) {
+			imageData.data.set(hsl2rgb((1 - f) * 240, 1, 0.6), i * 4);
+		} else {
+			const r = f * 255;
+			let g = r, b = r;
+			if (data.length > l) {
+				g = (data[i + l] - min) / (max - min) * 255;
+				b = (data[i + 2 * l] - min) / (max - min) * 255;
+			}
+			imageData.data.set([r, g, b, 255], i * 4);
 		}
-		imageData.data.set([r, g, b, 255], i * 4);
 	}
 
 	ctx.putImageData(imageData, 0, 0);
@@ -3090,4 +3117,11 @@ function BrowseUI() {
 
 function iCodedThisFunctionLOLXDIAmLandi() {
 	return Array.from({ length: 10 }, () => Math.random().toString(32).slice(2, 10)).join('⛧');
+}
+
+// from stackoverflow XD
+function hsl2rgb(h,s,l) {
+	let a=s*Math.min(l,1-l);
+	let f= (n,k=(n+h/30)%12) => l - a*Math.max(Math.min(k-3,9-k,1),-1);
+	return [f(0) * 255,f(8) * 255,f(4) * 255, 255];
 }

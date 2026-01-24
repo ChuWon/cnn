@@ -545,18 +545,79 @@ function predict(x) {
 	let y = x;
 	const layerOutputs = [y];
 
+	let conv, convActivations;
+
 	for (const layer of layers) {
 		y = layer.forward(y);
 		layerOutputs.push(y);
-	}
-	y = softmax(y, outputLength);
-	layerOutputs[layerOutputs.length - 1] = y;
 
-	postMessage({
+		if (layer instanceof Conv) {
+			conv = layer;
+			convActivations = y;
+		}
+	}
+	layerOutputs[layerOutputs.length - 1] = softmax(y, outputLength);
+
+	const msg = {
 		id: 'prediction', 
 		modelId, 
 		layerOutputs
-	});
+	};
+
+	if (conv) {
+		msg.map = gradCAM(conv, convActivations, y); 
+		msg.mapSize = conv.outputSize
+	}
+
+	postMessage(msg);
+}
+
+function gradCAM(conv, convActivations, y) {
+	const kernelSize = conv.kernelSize;
+	const kernelLength = kernelSize * kernelSize;
+	const outputSize = conv.outputSize;
+
+	const map = new Float32Array(outputSize * outputSize);
+
+	const oldUpdateParams = updateParams;
+	updateParams = function (params, grad) {
+		if (params === conv.kernels) {
+			const n = grad.length / kernelLength;
+
+			for (let i = 0; i < n; i++) {
+				let weight = 0;
+				for (let y = 0; y < kernelSize; y++) {
+					for (let x = 0; x < kernelSize; x++) {
+						weight += grad[i * kernelLength + y * kernelSize + x];
+					}
+				}
+
+				if (weight === 0) continue;
+				weight /= kernelLength;
+
+				for (let y = 0; y < outputSize; y++) {
+					for (let x = 0; x < outputSize; x++) {
+						map[y * outputSize + x] += weight * convActivations[i * map.length + y * outputSize + x];
+					}
+				}
+			}
+
+			for (let i = 0; i < map.length; i++) {
+				map[i] = Math.max(0, -map[i]);
+			}
+		}
+	}
+
+	let grad = new Float32Array(outputLength);
+	grad[argmax(y, outputLength)] = 1;
+
+	for (let i = layers.length - 1; i >= 0; i--) {
+		grad = layers[i].backward(grad);
+	}
+
+	updateParams = oldUpdateParams;
+
+	return map;
 }
 
 // dataset
