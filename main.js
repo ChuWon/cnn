@@ -2114,7 +2114,7 @@ let cy = 0;
 let cz = 0;
 
 let ncx = 0;
-let ncy = 2666;
+let ncy = 0;
 let ncz = 0;
 
 const minDepth = 2;
