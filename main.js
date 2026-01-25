@@ -20,9 +20,6 @@ const configs = {
 		datasetUrl: 'cifar10-batch-1.bin', 
 		checkpointUrl: 'checkpoints/cifar10-e6-17.03.666', 
 		checkpointName: 'cifar10', 
-		/*datasetUrl: 'cifar10.bin', 
-		checkpointUrl: 'checkpoints/cifar10-full-e5-0.03.666', 
-		checkpointName: 'cifar10-full', */
 		batchSize: 1, 
 		learningRate: 0.01, 
 		labels: [
@@ -49,6 +46,12 @@ const configs = {
 		learningRate: 0.5
 	}
 };
+
+configs.cifar10Full = Object.assign({}, configs.cifar10, {
+	datasetUrl: 'cifar10.bin', 
+	checkpointUrl: 'checkpoints/cifar10-full-e9-1.53.666', 
+	checkpointName: 'cifar10-full', 
+});
 
 const config = configs[new URLSearchParams(location.search).get('config')] || configs.mnist;
 
@@ -1671,7 +1674,7 @@ function drawHud(ctx) {
 		ctx.save();
 		ctx.translate(W - 150 - 15 - 15, H - 29 + (1 - showT) * 300);
 		ctx.imageSmoothingEnabled = false;
-		ctx.drawImage(cam, -151, -151, 151, 151);
+		ctx.drawImage(cam, -100, -100, 100, 100);
 
 		ctx.fillStyle = '#fff';
 		ctx.font = 'normal 10px monospace';
