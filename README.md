@@ -12,7 +12,11 @@ convolutional neural network from scratch in js moment xp
 - mnist nn: https://chuwon.github.io/cnn?config=mnistNN
 
 ## screenie:
-![screenshot](https://raw.githubusercontent.com/chuwon/cnn/master/screenshot.png)
-![loss landscape](https://raw.githubusercontent.com/chuwon/cnn/master/loss.png)
+![mnist cnn](https://raw.githubusercontent.com/chuwon/cnn/master/screenshots/mnist_cnn.png)
+![loss landscape](https://raw.githubusercontent.com/chuwon/cnn/master/screenshots/loss.png)
+![mnist nn](https://raw.githubusercontent.com/chuwon/cnn/master/screenshots/cifar10.png)
+![mnist nn](https://raw.githubusercontent.com/chuwon/cnn/master/screenshots/mnist_nn.png)
+![gradcam](https://raw.githubusercontent.com/chuwon/cnn/master/screenshots/gradcam.png)
+![dataset explolal](https://raw.githubusercontent.com/chuwon/cnn/master/screenshots/dataset.png)
 
 ![astral>>>](https://raw.githubusercontent.com/chuwon/cnn/master/troll.png)

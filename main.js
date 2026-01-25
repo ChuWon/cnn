@@ -1670,7 +1670,7 @@ function drawHud(ctx) {
 		canvas.style.cursor = '';
 	}
 
-	if (cam) {
+	if (!showingLossLandscape && cam) {
 		ctx.save();
 		ctx.translate(W - 150 - 15 - 15, H - 29 + (1 - showT) * 300);
 		ctx.imageSmoothingEnabled = false;
@@ -2072,12 +2072,17 @@ function projectPoints(points) {
 
 let pointerX = 0;
 let pointerY = 0;
-document.onmousemove = function (event) {
+
+function setPointer(event) {
 	pointerX = event.clientX / window.innerWidth * hudCanvas.width;
 	pointerY = event.clientY / window.innerHeight * hudCanvas.height;
-
 	canvas.style.cursor = isLightHovered(event) ? 'pointer' : '';
 }
+
+canvas.ontouchstart = canvas.ontouchmove = function (event) {
+	setPointer(event.changedTouches[0]);
+}
+document.onmousemove = setPointer;
 
 canvas.onclick = function (event) {
 	if (isLightHovered(event)) {
@@ -2109,7 +2114,7 @@ let cy = 0;
 let cz = 0;
 
 let ncx = 0;
-let ncy = 0;
+let ncy = 2666;
 let ncz = 0;
 
 const minDepth = 2;
@@ -2605,8 +2610,8 @@ function render() {
 	let rotY = ry;
 
 	if (shakeT > 0) {
-		rotX += Math.sin(now / 150) * 0.1 * shakeT;
-		rotY += Math.sin(now / 300) * Math.cos(now / 120) * 0.15 * shakeT;
+		rotX += Math.floor(Math.sin(now / 150) * 5) / 5 * 0.1 * shakeT;
+		rotY += Math.floor(Math.sin(now / 300) * Math.cos(now / 120) * 5) / 5 * 0.15 * shakeT;
 	}
 
 	const cosX = Math.cos(rotX);
@@ -2627,7 +2632,7 @@ function render() {
 
 	const near = 0.1;
 	const far = 1000;
-	const fov = 60;
+	const fov = 60 + (shakeT > 0 ? (Math.sin(now / 500) * 0.5 + 0.5) * 66.6 * shakeT : 0);
 	const f = 1 / Math.tan(fov * Math.PI / 360);
 	const nf = 1 / (near - far);
 	const aspect = canvas.width / canvas.height;
