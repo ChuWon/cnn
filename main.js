@@ -2063,9 +2063,23 @@ function drawNetworkHud(ctx, W, H) {
 		const gap = 10;
 		ctx.translate(-(size * picked.maps.length + (picked.maps.length - 1) * gap) / 2, 0);
 
-		for (const item of picked.maps) {
+		let gjhoyuiy;
+		if (picked.maps.length >= 2) {
+			const xclkvj = picked.timestamp + 22_666;
+			const vkfldkvm = now > xclkvj;
+			const fkg9t6kfl = [
+				['death to f💩ggit', 'yes laddy :3'], 
+				[`no!`, '3301_4_al'], 
+				['good pet', '🐱meow🐱'], 
+				['u', 'loo ley link v r luh?']
+			];
+			gjhoyuiy = fkg9t6kfl[Math.floor((now - xclkvj) / 8555)];
+		}
+
+		for (let i = 0; i < picked.maps.length; i++) {
+			const item = picked.maps[i];
 			ctx.drawImage(item.image, 0, 0, size, size);
-			ctx.fillText(item.title, size / 2, -5);
+			ctx.fillText(gjhoyuiy?.[i] || item.title, size / 2, -5);
 			ctx.translate(size + gap, 0);
 		}
 
@@ -2231,6 +2245,7 @@ window.onmousemove = function (event) {
 	if (picked) {
 		picked.x = pointer[0] / window.innerWidth;
 		picked.y = pointer[1] / window.innerHeight;
+		picked.timestamp = now;
 		updatePickedMaps();
 	}
 
