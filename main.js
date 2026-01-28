@@ -186,7 +186,7 @@ worker.onmessage = function (event) {
 				}
 			}
 
-			isTraining() && train();
+			onTrain();
 			break;
 
 		case 'epoch':
@@ -199,13 +199,17 @@ worker.onmessage = function (event) {
 			addGraph('valLoss', msg.valLoss);
 			addGraph('valAccuracy', msg.valAccuracy);
 
-			isTraining() && train();
+			onTrain();
 			break;
 
 		case 'prediction': {
 			predicting = false;
 
 			updateStartActivation();
+
+			for (let i = 0; i < msg.layerOutputs.length; i++) {
+				layers[i].outputs = msg.layerOutputs[i];
+			}
 
 			for (let i = msg.layerOutputs.length - 1; i >= 0; i--) {
 				const outputs = msg.layerOutputs[i];
@@ -250,6 +254,7 @@ worker.onmessage = function (event) {
 			};
 
 			cam = msg.map ? createImage(msg.map, msg.mapSize, undefined, undefined, true) : null;
+			picked && updatePickedMaps();
 		}	break;
 
 		case 'elPrediction':
@@ -334,6 +339,11 @@ worker.onmessage = function (event) {
 		default:
 			console.log(`Unknown msg id from worker: ${msg.id}`);
 	}
+}
+
+function onTrain() {
+	isTraining() && train();
+	picked && updatePickedMaps();
 }
 
 function updateStartActivation() {
@@ -2042,19 +2052,22 @@ function drawNetworkHud(ctx, W, H) {
 
 		ctx.restore();
 
-		const size = 90;
+		const size = 100;
 		ctx.translate(picked.x * W, picked.y * H - 10 - size);
 
-		if (picked.image) {
-			ctx.imageSmoothingEnabled = false;
-			ctx.drawImage(picked.image, -size / 2, 0, size, size);
-		}
-
-		ctx.translate(0, -5);
+		ctx.imageSmoothingEnabled = false;
 		ctx.fillStyle = colors.label;
 		ctx.textAlign = 'center';
 		ctx.textBaseline = 'bottom';
-		ctx.fillText(picked.name, 0, 0);
+
+		const gap = 10;
+		ctx.translate(-(size * picked.maps.length + (picked.maps.length - 1) * gap) / 2, 0);
+
+		for (const item of picked.maps) {
+			ctx.drawImage(item.image, 0, 0, size, size);
+			ctx.fillText(item.title, size / 2, -5);
+			ctx.translate(size + gap, 0);
+		}
 
 		ctx.restore();
 	}
@@ -2218,18 +2231,7 @@ window.onmousemove = function (event) {
 	if (picked) {
 		picked.x = pointer[0] / window.innerWidth;
 		picked.y = pointer[1] / window.innerHeight;
-
-		const layer = picked.layer;
-		picked.name = layer.type + ' Kernel #' + (picked.i + 1);
-
-		if (layer.kernels) {
-			const l = layer.kernelSize * layer.kernelSize;
-
-			picked.image = createImage(
-				layer.kernels.slice(picked.i * l, picked.i * l + l), 
-				layer.kernelSize
-			);
-		}
+		updatePickedMaps();
 	}
 
 	if (showingLossLandscape) {
@@ -2264,6 +2266,33 @@ window.onmousemove = function (event) {
 window.onmouseup = function (event) {
 	if (event.button === 0) {
 		lastPointer = null;
+	}
+}
+
+function updatePickedMaps() {
+	const layer = picked.layer;
+	picked.maps = [];
+
+	if (layer.kernels) {
+		const l = layer.kernelSize * layer.kernelSize;
+		picked.maps.push({
+			title: `Kernel #${picked.i + 1}`, 
+			image: createImage(
+				layer.kernels.slice(picked.i * l, picked.i * l + l), 
+				layer.kernelSize
+			)
+		});
+	}
+
+	if (layer.outputs) {
+		const l = layer.outputSize * layer.outputSize;
+		picked.maps.push({
+			title: `Activation #${picked.i + 1}`, 
+			image: createImage(
+				layer.outputs.slice(picked.i * l, picked.i * l + l), 
+				layer.outputSize
+			)
+		});
 	}
 }
 
@@ -2365,7 +2394,7 @@ function createImage(data, size, min, max, heatmap) {
 
 	const l = size * size;
 	for (let i = 0; i < l; i++) {
-		const f = (data[i] - min) / (max - min);
+		const f = (data[i] - min) / (max - min) || 0;
 
 		if (heatmap) {
 			imageData.data.set(hsl2rgb((1 - f) * 240, 1, 0.6), i * 4);
