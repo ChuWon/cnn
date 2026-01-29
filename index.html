@@ -4,6 +4,20 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="user-scalable=no,width=device-width,height=device-height,initial-scale=1,shrink-to-fit=no,viewport-fit=cover,maximum-scale=1">
 	<title>cnn</title>
+	<meta name="msapplication-TileColor" content="#333">
+	<meta name="theme-color" content="#2f2f2f">
+	<link rel="shortcut icon" href="favicon.png">
+	<link rel="apple-touch-icon" sizes="48x48" href="/icons/icon-48x48.png">
+	<link rel="apple-touch-icon" sizes="72x72" href="/icons/icon-72x72.png">
+	<link rel="apple-touch-icon" sizes="96x96" href="/icons/icon-96x96.png">
+	<link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144x144.png">
+	<link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png">
+	<link rel="apple-touch-icon" sizes="256x256" href="/icons/icon-256x256.png">
+	<link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512x512.png">
+	<link rel="manifest" href="manifest.json">
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<meta name="application-name" content="cnn">
 	<style>
 		
 		body {
@@ -76,7 +90,7 @@
 			height: 1em;
 			width: 5em;
 			cursor: col-resize;
-			border-radius: 0;
+			border-radius: 0.15em;
 			margin: 0;
 			flex: 1;
 		}
@@ -89,7 +103,7 @@
 			-webkit-appearance: none;
 			width: 0.3em;
 			height: 1em;
-			background: #ccc;
+			background: transparent;
 			box-shadow: -100em 0 0 100em var(--color);
 		}
 
@@ -107,7 +121,7 @@
 		}
 
 		.checkbox {
-			font-size: 16px;
+			font-size: 15px;
 			width: 1em;
 			height: 1em;
 			background: #777;
@@ -117,6 +131,8 @@
 			position: relative;
 			cursor: pointer;
 			outline: 0;
+			border-radius: 0.15em;
+			transition: 0.1s background;
 		}
 
 		.checkbox:checked {
@@ -177,6 +193,7 @@
 			outline: 0;
 			width: 100px;
 			height: 18px;
+			border-radius: 0.2em;
 		}
 
 		.dialog {

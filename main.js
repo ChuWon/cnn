@@ -1786,7 +1786,7 @@ function drawHud(ctx) {
 	ctx.translate(-400 * (1 - showT), H - 130);
 
 	ctx.beginPath();
-	ctx.rect(-5, -18, 250 + 5, 36);
+	ctx.roundRect(-5, -18, 250 + 5 + 6, 36, 4);
 	ctx.fillStyle = '#333';
 	ctx.globalAlpha = 0.3;
 	ctx.fill();
@@ -1798,14 +1798,16 @@ function drawHud(ctx) {
 
 	ctx.globalAlpha = 0.1;
 	ctx.fillStyle = '#fff';
-	ctx.fillRect(0, -14, 246 * progress, 28);
+	ctx.beginPath();
+	ctx.roundRect(6, -14, 246 * progress, 28, 2);
+	ctx.fill();
 
 	ctx.globalAlpha = 1;
 	ctx.fillStyle = '#fff';
 	ctx.font = 'normal 10px monospace';
 	ctx.textBaseline = 'middle';
 	ctx.textAlign = 'left';
-	ctx.fillText(progressText + (progress !== 1 ? '.'.repeat((now / 1000 % 1) * 10) : ''), 10, 0);
+	ctx.fillText(progressText + (progress !== 1 ? '.'.repeat((now / 1000 % 1) * 10) : ''), 16, 0);
 
 	ctx.restore();
 
@@ -1907,7 +1909,7 @@ function drawNetworkHud(ctx, W, H) {
 		}
 	}
 
-	let kernelN = Date.now() / 555;
+	let kernelN = Date.now() / 255;
 	const t = Math.min(1, (kernelN % 1) / 0.3);
 	kernelN = Math.floor(kernelN);
 
@@ -1921,16 +1923,24 @@ function drawNetworkHud(ctx, W, H) {
 
 		const outputSize = layer.outputSize;
 		const inputSize = prevLayer.outputSize;
-		
-		let nx = kernelN % outputSize;
-		let ny = Math.floor(kernelN / outputSize) % outputSize;
 
-		if (nx < outputSize - 1) {
-			nx += t;
+		const outputLength = outputSize * outputSize;
+		let kn = kernelN % outputLength;
+		let dir = 1;
+		if (Math.floor(kernelN / outputLength) % 2 === 1) {
+			kn = outputLength - 1 - kn;
+			dir = -1;
+		}
+		
+		let nx = kn % outputSize;
+		let ny = Math.floor(kn / outputSize) % outputSize;
+
+		if (dir === 1 ? nx < outputSize - 1 : nx > 0) {
+			nx += dir * t;
 			if (ny % 2 === 1) nx = outputSize - 1 - nx;
-		} else if (ny < outputSize - 1) {
+		} else if (dir === 1 ? ny < outputSize - 1 : ny > 0) {
 			if (ny % 2 === 1) nx = outputSize - 1 - nx;
-			ny += t;
+			ny += dir * t;
 		}
 		
 		let sx = nx;
@@ -3176,4 +3186,27 @@ function hsl2rgb(h,s,l) {
 	let a=s*Math.min(l,1-l);
 	let f= (n,k=(n+h/30)%12) => l - a*Math.max(Math.min(k-3,9-k,1),-1);
 	return [f(0) * 255,f(8) * 255,f(4) * 255, 255];
+}
+
+function dumpIcons() {
+	const sizes = [16, 32, 48, 72, 96, 144, 192, 256, 384, 512];
+
+	const image = new Image();
+	image.src = 'icons/icon.png';
+	image.onload = function () {
+		for (const size of sizes) {
+			const canvas = document.createElement('canvas');
+			canvas.width = canvas.height = size;
+			
+			const ctx = canvas.getContext('2d');
+			ctx.imageSmoothingEnabled = false;
+
+			ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+			const a = document.createElement('a');
+			a.href = canvas.toDataURL();
+			a.download = `icon-${size}x${size}.png`;
+			a.click();
+		}
+	}
 }
