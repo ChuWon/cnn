@@ -710,9 +710,10 @@ function SketchUI() {
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 
 		ctx.save();
-		ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+		const s = window.devicePixelRatio;
+		ctx.scale2(s);
 
-		ctx.filter = 'blur(2px)';
+		ctx.filter = `blur(${2 * s}px)`;
 		
 		ctx.beginPath();
 		for (const path of paths) {
@@ -1180,15 +1181,17 @@ function resizeCanvas() {
 	hudCanvas.height = canvas.height;
 }
 
+let uiScale = 1;
+
 function resize() {
 	resizeCanvas();
 
-	const scale = Math.max(window.innerWidth / 1366, window.innerHeight / 768);
+	uiScale = Math.max(window.innerWidth / 1366, window.innerHeight / 768) * (screen.width < 750 ? 1.4 : 1);
 
 	Object.assign(uiEl.style, {
-		transform: `scale(${scale})`, 
-		width: window.innerWidth / scale + 'px', 
-		height: window.innerHeight / scale + 'px', 
+		transform: `scale(${uiScale})`, 
+		width: window.innerWidth / uiScale + 'px', 
+		height: window.innerHeight / uiScale + 'px', 
 	});
 }
 
@@ -1418,7 +1421,7 @@ function isLossPointHidden(x, y) {
 
 function drawHud(ctx) {
 	const canvas = ctx.canvas;
-	const scale = Math.max(canvas.width / 1366, canvas.height / 768);
+	const scale = uiScale * canvas.width / window.innerWidth;
 
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1909,7 +1912,7 @@ function drawNetworkHud(ctx, W, H) {
 		}
 	}
 
-	let kernelN = Date.now() / 255;
+	let kernelN = Date.now() / 555;
 	const t = Math.min(1, (kernelN % 1) / 0.3);
 	kernelN = Math.floor(kernelN);
 
