@@ -1186,7 +1186,7 @@ let uiScale = 1;
 function resize() {
 	resizeCanvas();
 
-	uiScale = Math.max(window.innerWidth / 1366, window.innerHeight / 768) * (screen.width < 750 ? 1.4 : 1);
+	uiScale = Math.max(window.innerWidth / 1366, window.innerHeight / 768) * (screen.width < 800 ? 1.4 : 1);
 
 	Object.assign(uiEl.style, {
 		transform: `scale(${uiScale})`, 
@@ -1208,6 +1208,7 @@ const settings = {
 	endlessTraining: false, 
 	lossLandscape: false, 
 	autoSaveCheckpoint: false, 
+	weightHeatmap: false, 
 	learningRate: [config.learningRate, 0.01, 1, 0.01], 
 	checkpointSaveInterval: [0.1, 0.01, 1, 0.01], 
 	batchSize: [config.batchSize, 1, 666, 1], 
@@ -2027,44 +2028,61 @@ function drawNetworkHud(ctx, W, H) {
 	}
 
 	if (picked) block: {
-		const points = projectPoints(picked.points);
-		if (!points) break block;
+		if (picked.layer.type === 'Conv') {
+			const points = projectPoints(picked.points);
+			if (!points) break block;
+
+			ctx.beginPath();
+			for (const [x, y] of points) {
+				ctx.lineTo(x * W, y * H);
+			}
+			ctx.closePath();
+
+			ctx.fillStyle = `#fff`;
+			const t = (Math.sin(now / 100) * 0.5 + 0.5);
+			ctx.globalAlpha = t * 0.069 + 0.1;
+			ctx.fill();
+			ctx.globalAlpha = 1;
+			ctx.lineWidth = 2;
+			ctx.strokeStyle = '#fff';
+			ctx.stroke();
+
+			ctx.save();
+			ctx.clip();
+
+			const z = picked.points[0][2];
+			const r = Math.abs(picked.points[0][0]) * 0.69969;
+
+			ctx.beginPath()
+			for (let i = 0; i < 5; i++) {
+				const a = PI2 * i / 2.5 + now / 2666 + picked.i / picked.layer.depth * 2.666;
+				const [x, y] = project(Math.cos(a) * r, Math.sin(a) * r, z);
+				ctx.lineTo(x * W, y * H);
+			}
+			ctx.closePath();
+			ctx.globalAlpha = 0.0555 + t * 0.0666;
+			ctx.lineWidth = 8.555;
+			ctx.stroke();
+
+			ctx.restore();
+		} else if (picked.layer.type === 'Linear') {
+			const [x, y, z] = picked.point;
+			const p = project2(x, y, z);
+			if (p) {
+				const b = project(x + 1, y + 1, z + 1);
+				const r = Math.hypot(p[0] - b[0], p[1] - b[1], p[2] - b[2]) * H;
+
+				ctx.save();
+				ctx.translate(p[0] * W, p[1] * H);
+				ctx.lineWidth = 2;
+				ctx.strokeStyle = getHoverColor();
+				const s = r + (Math.sin(now / 100) * 0.5 + 0.5) * Math.min(r, 20);
+				ctx.strokeRect(-s, -s, s * 2, s * 2);
+				ctx.restore();
+			}
+		}
 
 		ctx.save();
-		ctx.beginPath();
-		for (const [x, y] of points) {
-			ctx.lineTo(x * W, y * H);
-		}
-		ctx.closePath();
-
-		ctx.fillStyle = `#fff`;
-		const t = (Math.sin(now / 100) * 0.5 + 0.5);
-		ctx.globalAlpha = t * 0.069 + 0.1;
-		ctx.fill();
-		ctx.globalAlpha = 1;
-		ctx.lineWidth = 2;
-		ctx.strokeStyle = '#fff';
-		ctx.stroke();
-
-		ctx.save();
-		ctx.clip();
-
-		const z = picked.points[0][2];
-		const r = Math.abs(picked.points[0][0]) * 0.69969;
-
-		ctx.beginPath()
-		for (let i = 0; i < 5; i++) {
-			const a = PI2 * i / 2.5 + now / 2666 + picked.i / picked.layer.depth * 2.666;
-			const [x, y] = project(Math.cos(a) * r, Math.sin(a) * r, z);
-			ctx.lineTo(x * W, y * H);
-		}
-		ctx.closePath();
-		ctx.globalAlpha = 0.0555 + t * 0.0666;
-		ctx.lineWidth = 8.555;
-		ctx.stroke();
-
-		ctx.restore();
-
 		const size = 100;
 		ctx.translate(picked.x * W, picked.y * H - 10 - size);
 
@@ -2084,7 +2102,9 @@ function drawNetworkHud(ctx, W, H) {
 				['death to f💩ggit', 'yes laddy :3'], 
 				[`no!`, '3301_4_al'], 
 				['good pet', '🐱meow🐱'], 
-				['u', 'loo ley link v r luh?']
+				['u', 'loo ley link v r luh?'], 
+				['fk USA n IN', 'yes LOL XD'], 
+				['missed me pedoguy?', 'tell it elon XD']
 			];
 			gjhoyuiy = fkg9t6kfl[Math.floor((now - xclkvj) / 8555)];
 		}
@@ -2209,7 +2229,22 @@ window.onmousemove = function (event) {
 	picked = null;
 
 	for (const layer of layers) {
-		if (layer.type !== 'Conv') continue;
+		if (layer.type === 'Linear' && layer.outputLength < 100) {
+			let minDistance = Infinity;
+			for (let i = 0; i < layer.outputLength; i++) {
+				const point = boxes[layer.offset + i];
+				const p = project2(...point);
+				if (p && Math.hypot(p[0] * window.innerWidth - pointer[0], p[1] * window.innerHeight - pointer[1]) < 10 && p[2] < minDistance) {
+					picked = {
+						layer, 
+						i, 
+						point
+					};
+					minDistance = p[2];
+				}
+			}
+			continue;
+		} else if (layer.type !== 'Conv') continue;
 
 		let minZ = Infinity;
 
@@ -2301,6 +2336,18 @@ function updatePickedMaps() {
 	const layer = picked.layer;
 	picked.maps = [];
 
+	if (layer.weights) {
+		const l = layer.inputLength;
+		const size = Math.ceil(Math.sqrt(l));
+		picked.maps.push({
+			title: `Weights #${picked.i}`, 
+			image: createImage(
+				layer.weights.slice(picked.i * l, picked.i * l + l), 
+				size
+			)
+		});
+	}
+
 	if (layer.kernels) {
 		const l = layer.kernelSize * layer.kernelSize;
 		picked.maps.push({
@@ -2312,7 +2359,7 @@ function updatePickedMaps() {
 		});
 	}
 
-	if (layer.outputs) {
+	if (layer.type === 'Conv' && layer.outputs) {
 		const l = layer.outputSize * layer.outputSize;
 		picked.maps.push({
 			title: `Activation #${picked.i + 1}`, 
@@ -2404,7 +2451,7 @@ canvas.onTouchStart = function (touch) {
 	}
 }
 
-function createImage(data, size, min, max, heatmap) {
+function createImage(data, size, min, max, heatmap = settings.weightHeatmap) {
 	const canvas = document.createElement('canvas');
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext('2d');
@@ -3104,7 +3151,7 @@ function BrowseUI() {
 					<div id="pred-${item.id}">pred: sus</div>
 				</div>
 			</div>`);
-			el.appendChild(createImage(item.x, config.inputSize, 0, 1));
+			el.appendChild(createImage(item.x, config.inputSize, 0, 1, false));
 			el.item = item;
 			el.onclick = onClick;
 			el.onmouseenter = onMouseEnter;

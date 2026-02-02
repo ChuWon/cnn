@@ -69,6 +69,12 @@ class Conv {
 			kernelSize: this.kernelSize
 		};
 	}
+
+	getParams() {
+		return {
+			kernels: this.kernels
+		};
+	}
 }
 
 class Activation {
@@ -196,7 +202,14 @@ class Linear {
 	toJson() {
 		return {
 			type: 'Linear', 
+			inputLength: this.inputLength, 
 			outputLength: this.outputLength
+		};
+	}
+
+	getParams() {
+		return {
+			weights: this.weights
 		};
 	}
 }
@@ -797,10 +810,8 @@ function sendParams() {
 
 	for (let i = 0; i < layers.length; i++) {
 		const layer = layers[i];
-		if (layer instanceof Conv) {
-			map[i + 1] = {
-				kernels: layer.kernels
-			};
+		if (layer.getParams) {
+			map[i + 1] = layer.getParams()
 		}
 	}
 
